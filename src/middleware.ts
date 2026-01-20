@@ -2,17 +2,26 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  // Skip auth check for auth page itself
-  if (request.nextUrl.pathname === '/auth') {
+  const { pathname } = request.nextUrl;
+
+  // Redirect /login to /connect
+  if (pathname === '/login') {
+    return NextResponse.redirect(new URL('/connect', request.url));
+  }
+
+  // Skip auth check for public pages
+  const publicPaths = ['/auth', '/connect', '/'];
+  if (publicPaths.includes(pathname)) {
     return NextResponse.next();
   }
 
-  // Check for auth cookie
+  // Check for auth cookie OR wallet connection (via demo mode flag in cookie)
   const authCookie = request.cookies.get('demo-auth');
-  
-  if (!authCookie || authCookie.value !== 'obelysk-verified') {
-    // Redirect to auth page if not authenticated
-    return NextResponse.redirect(new URL('/auth', request.url));
+  const walletConnected = request.cookies.get('wallet-verified');
+
+  if ((!authCookie || authCookie.value !== 'obelysk-verified') && !walletConnected) {
+    // Redirect to connect page if not authenticated
+    return NextResponse.redirect(new URL('/connect', request.url));
   }
 
   return NextResponse.next();
@@ -26,8 +35,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
-     * - /auth (the auth page itself)
      */
-    '/((?!_next/static|_next/image|favicon|brand|auth).*)',
+    '/((?!_next/static|_next/image|favicon|brand).*)',
   ],
 };
