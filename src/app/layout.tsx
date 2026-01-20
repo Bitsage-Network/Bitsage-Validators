@@ -4,6 +4,9 @@ import "./globals.css";
 import { StarknetProvider } from "@/lib/starknet/provider";
 import { QueryProvider } from "@/lib/providers/QueryProvider";
 
+// Get network from environment variable
+const network = (process.env.NEXT_PUBLIC_STARKNET_NETWORK || "sepolia") as "devnet" | "sepolia" | "mainnet";
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -50,7 +53,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}>
         <QueryProvider>
-          <StarknetProvider>
+          <StarknetProvider network={network}>
             {children}
           </StarknetProvider>
         </QueryProvider>

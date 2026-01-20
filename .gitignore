@@ -39,3 +39,27 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Sensitive files - private keys, keystores, credentials
+DEV_STRATEGY.md
+*.keystore
+*.keystore.json
+*_keystore.json
+deployment/
+secrets/
+*.secret
+*.private
+private_keys/
+
+# Wallet/account files
+keystore/
+accounts.json
+devnet_accounts.json
+**/accounts.json
+wallet.json
+.starkli/
+contracts/accounts.json
+contracts/devnet_accounts.json
+
+# Internal specs and knowledge base
+specs/

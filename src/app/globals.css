@@ -167,9 +167,43 @@
     .safe-area-inset-bottom {
       padding-bottom: max(1rem, env(safe-area-inset-bottom));
     }
-    
+
     .safe-area-inset-top {
       padding-top: max(1rem, env(safe-area-inset-top));
     }
+  }
+
+  /* Skeleton shimmer animation */
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 1.5s ease-in-out infinite;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.03) 100%
+    );
+    background-size: 200% 100%;
+  }
+
+  /* Skeleton base styles */
+  .skeleton {
+    @apply rounded bg-surface-elevated animate-shimmer;
+  }
+
+  .skeleton-text {
+    @apply h-4 rounded bg-surface-elevated animate-shimmer;
+  }
+
+  .skeleton-circle {
+    @apply rounded-full bg-surface-elevated animate-shimmer;
   }
 }
