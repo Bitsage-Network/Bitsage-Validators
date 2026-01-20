@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Shield,
   ArrowLeft,
@@ -32,340 +32,100 @@ import {
   Fingerprint,
   Lock,
   Unlock,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PrivacyModeToggle } from "@/components/privacy/PrivacyToggle";
+import { useProofDetail } from "@/lib/hooks/useApiData";
+import type { ProofDetail } from "@/lib/api/client";
+import {
+  CIRCUIT_REGISTRY,
+  getCircuitColor,
+  formatFriParams,
+  type CircuitId,
+} from "@/lib/proofs/circuitRegistry";
 
-// Mock proof data - in production this would come from API
-const getMockProofData = (id: string) => {
-  const proofs: Record<string, any> = {
-    "proof_0x4e5f6a": {
-      id: "proof_0x4e5f6a",
-      jobId: "job_0x7a2f3b",
-      circuitType: "stwo_ml_inference",
-      circuitLabel: "ML Inference",
-      status: "verified",
-      gpu: { id: "gpu_001", name: "NVIDIA H100", memory: "80GB" },
-      generatedAt: Date.now() - 300000,
-      verifiedAt: Date.now() - 295000,
-      duration: "5m 12s",
-      durationMs: 312000,
-      verifiedOnChain: true,
-      txHash: "0x04a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef12345678",
-      blockNumber: 1245678,
-      proofSize: "1.2 MB",
-      proofSizeBytes: 1258291,
-      client: "0x04f2a8b3c9d1e5f67890abcdef1234567890abcdef",
-      reward: "1.20",
-      isPrivate: true, // This job used privacy mode
-      
-      // Input/Output Data
-      input: {
-        hash: "0x1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890",
-        // Encrypted input ciphertext (L, R points)
-        encryptedHash: { L: "0x04a8c3f2e7b91d4a...", R: "0x07b2e1f9a3c8d5b2..." },
-        dataType: "tensor",
-        shape: "[1, 3, 224, 224]",
-        description: "Image tensor input for ResNet50 inference",
-      },
-      output: {
-        hash: "0x9876543210fedcba0987654321fedcba09876543210fedcba0987654321fedcba",
-        // Encrypted output ciphertext
-        encryptedHash: { L: "0x09f1c8d5a7b2e4f3...", R: "0x02c4e9f8b1a3d6c7..." },
-        dataType: "tensor",
-        shape: "[1, 1000]",
-        description: "Classification probabilities (1000 classes)",
-        preview: {
-          topPredictions: [
-            { class: "golden_retriever", confidence: 0.892 },
-            { class: "labrador", confidence: 0.067 },
-            { class: "cocker_spaniel", confidence: 0.023 },
-          ],
-        },
-      },
-      
-      // Circuit Stats (matches STWO FriConfig + AIR)
-      circuit: {
-        constraintCount: 2456789,
-        traceLength: "2^20",
-        traceRows: 1048576,
-        fieldSize: "M31 (ext: QM31)", // M31 base field, QM31 extension for security
-        blowupFactor: 2, // log_blowup_factor = 2 means 4x expansion
-        numQueries: 100, // n_queries in FriConfig
-        friLayers: 15, // first_layer + inner_layers.len() + last_layer
-        securityBits: 100, // ~queries * log2(blowup) soundness
-      },
-      
-      // Proof Components (matches STWO CommitmentSchemeProof + FriProof)
-      proofComponents: {
-        // First layer Merkle root (first_layer.commitment)
-        firstLayerCommitment: "0xabc123def456789012345678901234567890123456789012345678901234abcd",
-        // Inner FRI layer commitments (inner_layers[i].commitment)
-        friCommitments: [
-          "0x111222333444555666777888999000aaabbbcccdddeeefff000111222333444555",
-          "0x222333444555666777888999000aaabbbcccdddeeefff000111222333444555666",
-          "0x333444555666777888999000aaabbbcccdddeeefff000111222333444555666777",
-        ],
-        // Trace polynomial commitments (commitments in CommitmentSchemeProof)
-        traceCommitments: [
-          "0xdef789abc123456789012345678901234567890123456789012345678901234def",
-          "0xfed321cba987654321fedcba987654321fedcba987654321fedcba987654321fed",
-        ],
-        // Last layer polynomial degree
-        lastLayerDegree: 8,
-        // Query count matches FriConfig.n_queries
-        queryResponses: 100,
-      },
-      
-      // Verification Details
-      verification: {
-        verifierContract: "0x0123456789abcdef0123456789abcdef01234567",
-        verificationGas: 1245000,
-        verificationTime: "2.3s",
-        // Fiat-Shamir: challenge derived from channel state, not explicit seed
-        channelState: "Fiat-Shamir (Blake2s)",
-      },
-      
-      // TEE Attestation (if applicable)
-      teeAttestation: {
-        enclaveId: "0x1234567890abcdef1234567890abcdef",
-        mrEnclave: "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-        mrSigner: "0x567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234",
-        reportData: "0x...",
-        timestamp: Date.now() - 300000,
-      },
-      
-      // Execution Phases (matches actual STWO prover pipeline)
-      executionPhases: [
-        { name: "Trace Generation", duration: 12000, status: "completed" },
-        { name: "Trace Commitment", duration: 45000, status: "completed" },
-        { name: "Constraint Evaluation", duration: 35000, status: "completed" },
-        { name: "Composition Commitment", duration: 40000, status: "completed" },
-        { name: "FRI Protocol", duration: 150000, status: "completed" },
-        { name: "Query Phase", duration: 30000, status: "completed" },
-      ],
+// Transform API response to component format (snake_case -> camelCase)
+function transformProofDetail(data: ProofDetail): any {
+  return {
+    id: data.id,
+    jobId: data.job_id,
+    circuitType: data.circuit_type,
+    circuitLabel: data.circuit_label,
+    status: data.status,
+    gpu: data.gpu,
+    generatedAt: data.generated_at,
+    verifiedAt: data.verified_at,
+    duration: data.duration,
+    durationMs: data.duration_ms,
+    verifiedOnChain: data.verified_on_chain,
+    txHash: data.tx_hash,
+    blockNumber: data.block_number,
+    proofSize: data.proof_size,
+    proofSizeBytes: data.proof_size_bytes,
+    client: data.client,
+    reward: data.reward,
+    isPrivate: data.is_private,
+    progress: data.progress,
+    currentPhase: data.current_phase,
+    input: {
+      hash: data.input.hash,
+      encryptedHash: data.input.encrypted_hash,
+      dataType: data.input.data_type,
+      shape: data.input.shape,
+      description: data.input.description,
+      preview: data.input.preview ? {
+        topPredictions: data.input.preview.top_predictions,
+        metrics: data.input.preview.metrics,
+      } : undefined,
     },
-    "proof_0x8a9b0c": {
-      id: "proof_0x8a9b0c",
-      jobId: "job_0x6e7f8a",
-      circuitType: "stwo_etl",
-      circuitLabel: "ETL Pipeline",
-      status: "verified",
-      gpu: { id: "gpu_002", name: "NVIDIA A100", memory: "80GB" },
-      generatedAt: Date.now() - 1800000,
-      verifiedAt: Date.now() - 1795000,
-      duration: "8m 22s",
-      durationMs: 502000,
-      verifiedOnChain: true,
-      txHash: "0x05b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef123456789a",
-      blockNumber: 1245234,
-      proofSize: "2.1 MB",
-      proofSizeBytes: 2202009,
-      client: "0x09e4b7c6d5f8a9012345678901234567890abcdef",
-      isPrivate: false, // Public job
-      reward: "2.15",
-      input: {
-        hash: "0x2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890ab",
-        dataType: "structured_data",
-        shape: "10,000 rows × 45 columns",
-        description: "Customer transaction data for aggregation",
-      },
-      output: {
-        hash: "0xa765432109fedcba0987654321fedcba09876543210fedcba0987654321fedcba",
-        dataType: "aggregated_metrics",
-        shape: "Summary statistics",
-        description: "Aggregated metrics and computed KPIs",
-        preview: {
-          metrics: {
-            totalTransactions: 10000,
-            totalVolume: "$1,245,678.90",
-            avgTransactionSize: "$124.57",
-          },
-        },
-      },
-      circuit: {
-        constraintCount: 4892156,
-        traceLength: "2^22",
-        traceRows: 4194304,
-        fieldSize: "M31 (ext: QM31)",
-        blowupFactor: 2,
-        numQueries: 120,
-        friLayers: 18,
-        securityBits: 100,
-      },
-      proofComponents: {
-        firstLayerCommitment: "0xbcd234efg567890123456789012345678901234567890123456789012345bcde",
-        friCommitments: [
-          "0x444555666777888999000aaabbbcccdddeeefff000111222333444555666777888",
-          "0x555666777888999000aaabbbcccdddeeefff000111222333444555666777888999",
-        ],
-        traceCommitments: [
-          "0xefg890bcd234567890123456789012345678901234567890123456789012345efg",
-        ],
-        lastLayerDegree: 16,
-        queryResponses: 120,
-      },
-      verification: {
-        verifierContract: "0x0123456789abcdef0123456789abcdef01234567",
-        verificationGas: 2156000,
-        verificationTime: "3.8s",
-        channelState: "Fiat-Shamir (Blake2s)",
-      },
-      teeAttestation: null,
-      executionPhases: [
-        { name: "Trace Generation", duration: 15000, status: "completed" },
-        { name: "Trace Commitment", duration: 90000, status: "completed" },
-        { name: "Constraint Evaluation", duration: 70000, status: "completed" },
-        { name: "Composition Commitment", duration: 110000, status: "completed" },
-        { name: "FRI Protocol", duration: 170000, status: "completed" },
-        { name: "Query Phase", duration: 47000, status: "completed" },
-      ],
+    output: {
+      hash: data.output.hash,
+      encryptedHash: data.output.encrypted_hash,
+      dataType: data.output.data_type,
+      shape: data.output.shape,
+      description: data.output.description,
+      preview: data.output.preview ? {
+        topPredictions: data.output.preview.top_predictions,
+        metrics: data.output.preview.metrics,
+      } : undefined,
     },
-    // Live proofs (in progress)
-    "proof_live_001": {
-      id: "proof_live_001",
-      jobId: "job_0x9d4e5f",
-      circuitType: "stwo_ml_inference",
-      circuitLabel: "ML Inference",
-      status: "generating",
-      gpu: { id: "gpu_001", name: "NVIDIA H100", memory: "80GB" },
-      generatedAt: Date.now() - 180000,
-      verifiedAt: null,
-      duration: "~8m estimated",
-      durationMs: 480000,
-      verifiedOnChain: false,
-      txHash: null,
-      blockNumber: null,
-      proofSize: "—",
-      proofSizeBytes: 0,
-      client: "0x07d1a8c3e5f29b4678901234567890abcdef1234",
-      reward: "—",
-      progress: 65,
-      currentPhase: "Commitment Generation",
-      isPrivate: true, // Private job
-      input: {
-        hash: "0x3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890abcd",
-        encryptedHash: { L: "0x08d7c4a3b2e1f5...", R: "0x03f9e8d7c6b5a4..." },
-        dataType: "tensor",
-        shape: "[1, 3, 512, 512]",
-        description: "High-resolution image for ML classification",
-      },
-      output: {
-        hash: "—",
-        encryptedHash: { L: "pending...", R: "pending..." },
-        dataType: "tensor",
-        shape: "[1, 1000]",
-        description: "Output pending...",
-        preview: null,
-      },
-      circuit: {
-        constraintCount: 2456789,
-        traceLength: "2^20",
-        traceRows: 1048576,
-        fieldSize: "M31 (ext: QM31)",
-        blowupFactor: 2,
-        numQueries: 100,
-        friLayers: 15,
-        securityBits: 100,
-      },
-      proofComponents: {
-        // Commitments are computed progressively during proof generation
-        firstLayerCommitment: null, // Not yet computed
-        traceCommitments: [],       // Computing...
-        friCommitments: [],         // Pending FRI phase
-        lastLayerDegree: null,
-        queryResponses: 0,
-      },
-      verification: {
-        verifierContract: "0x0123456789abcdef0123456789abcdef01234567",
-        verificationGas: 0,
-        verificationTime: "—",
-        channelState: "Fiat-Shamir (Blake2s)", // Consistent with completed proofs
-      },
-      teeAttestation: null,
-      executionPhases: [
-        { name: "Trace Generation", duration: 12000, status: "completed" },
-        { name: "Trace Commitment", duration: 45000, status: "completed" },
-        { name: "Constraint Evaluation", duration: 0, status: "in_progress" },
-        { name: "Composition Commitment", duration: 0, status: "pending" },
-        { name: "FRI Protocol", duration: 0, status: "pending" },
-        { name: "Query Phase", duration: 0, status: "pending" },
-      ],
+    circuit: {
+      constraintCount: data.circuit.constraint_count,
+      traceLength: data.circuit.trace_length,
+      traceRows: data.circuit.trace_rows,
+      fieldSize: data.circuit.field_size,
+      blowupFactor: data.circuit.blowup_factor,
+      numQueries: data.circuit.num_queries,
+      friLayers: data.circuit.fri_layers,
+      securityBits: data.circuit.security_bits,
     },
-    "proof_live_002": {
-      id: "proof_live_002",
-      jobId: "job_0x1a2b3c",
-      circuitType: "stwo_fibonacci",
-      circuitLabel: "STWO Fibonacci",
-      status: "generating",
-      gpu: { id: "gpu_002", name: "NVIDIA A100", memory: "80GB" },
-      generatedAt: Date.now() - 45000,
-      verifiedAt: null,
-      duration: "~2m estimated",
-      durationMs: 120000,
-      verifiedOnChain: false,
-      txHash: null,
-      blockNumber: null,
-      proofSize: "—",
-      proofSizeBytes: 0,
-      client: "0x02a3b4c5d6e7f8901234567890abcdef12345678",
-      reward: "—",
-      progress: 22,
-      currentPhase: "Witness Generation",
-      isPrivate: false, // Public job (for comparison)
-      input: {
-        hash: "0x5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
-        dataType: "integer",
-        shape: "n = 1000",
-        description: "Fibonacci sequence computation up to n=1000",
-      },
-      output: {
-        hash: "—",
-        dataType: "integer",
-        shape: "fib(1000)",
-        description: "Output pending...",
-        preview: null,
-      },
-      circuit: {
-        constraintCount: 65536,
-        traceLength: "2^16",
-        traceRows: 65536,
-        fieldSize: "M31 (ext: QM31)",
-        blowupFactor: 2,
-        numQueries: 80,
-        friLayers: 12,
-        securityBits: 100,
-      },
-      proofComponents: {
-        // Early stage - only trace generation started
-        firstLayerCommitment: null,
-        traceCommitments: [],
-        friCommitments: [],
-        lastLayerDegree: null,
-        queryResponses: 0,
-      },
-      verification: {
-        verifierContract: "0x0123456789abcdef0123456789abcdef01234567",
-        verificationGas: 0,
-        verificationTime: "—",
-        channelState: "Fiat-Shamir (Blake2s)",
-      },
-      teeAttestation: null,
-      executionPhases: [
-        { name: "Trace Generation", duration: 8000, status: "completed" },
-        { name: "Trace Commitment", duration: 0, status: "in_progress" },
-        { name: "Constraint Evaluation", duration: 0, status: "pending" },
-        { name: "Composition Commitment", duration: 0, status: "pending" },
-        { name: "FRI Protocol", duration: 0, status: "pending" },
-        { name: "Query Phase", duration: 0, status: "pending" },
-      ],
+    proofComponents: {
+      firstLayerCommitment: data.proof_components.first_layer_commitment,
+      friCommitments: data.proof_components.fri_commitments,
+      traceCommitments: data.proof_components.trace_commitments,
+      lastLayerDegree: data.proof_components.last_layer_degree,
+      queryResponses: data.proof_components.query_responses,
     },
+    verification: {
+      verifierContract: data.verification.verifier_contract,
+      verificationGas: data.verification.verification_gas,
+      verificationTime: data.verification.verification_time,
+      channelState: data.verification.channel_state,
+    },
+    teeAttestation: data.tee_attestation ? {
+      enclaveId: data.tee_attestation.enclave_id,
+      mrEnclave: data.tee_attestation.mr_enclave,
+      mrSigner: data.tee_attestation.mr_signer,
+      reportData: data.tee_attestation.report_data,
+      timestamp: data.tee_attestation.timestamp,
+    } : null,
+    executionPhases: data.execution_phases,
   };
-
-  return proofs[id] || null;
-};
+}
 
 // Status configuration
 const statusConfig: Record<string, { label: string; color: string; bg: string; icon: typeof CheckCircle2 }> = {
@@ -379,9 +139,16 @@ export default function ProofDetailPage() {
   const params = useParams();
   const router = useRouter();
   const proofId = params.id as string;
-  
-  const [proof, setProof] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+
+  // Fetch proof data from API
+  const { data: proofData, isLoading: loading, error, refetch } = useProofDetail(proofId);
+
+  // Transform API response to component format
+  const proof = useMemo(() => {
+    if (!proofData) return null;
+    return transformProofDetail(proofData);
+  }, [proofData]);
+
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["overview", "io", "circuit", "verification"])
@@ -400,18 +167,6 @@ export default function ProofDetailPage() {
       return next;
     });
   };
-
-  useEffect(() => {
-    // Simulate API fetch
-    const fetchProof = async () => {
-      setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const data = getMockProofData(proofId);
-      setProof(data);
-      setLoading(false);
-    };
-    fetchProof();
-  }, [proofId]);
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -481,6 +236,25 @@ export default function ProofDetailPage() {
         <div className="text-center">
           <Activity className="w-8 h-8 text-brand-400 animate-spin mx-auto mb-4" />
           <p className="text-gray-400">Loading proof details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px]">
+        <AlertTriangle className="w-12 h-12 text-red-400 mb-4" />
+        <h2 className="text-xl font-semibold text-white mb-2">Failed to Load Proof</h2>
+        <p className="text-gray-400 mb-4">Unable to fetch proof details. Please try again.</p>
+        <div className="flex gap-3">
+          <button onClick={() => refetch()} className="btn-primary flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Retry
+          </button>
+          <Link href="/proofs" className="btn-secondary">
+            Back to Proofs
+          </Link>
         </div>
       </div>
     );
@@ -914,7 +688,63 @@ export default function ProofDetailPage() {
             icon={<Layers className="w-5 h-5" />}
             isExpanded={expandedSections.has("circuit")}
             onToggle={() => toggleSection("circuit")}
+            badge={(() => {
+              const circuitDef = CIRCUIT_REGISTRY[proof.circuitType as CircuitId];
+              if (!circuitDef) return undefined;
+              const colors = getCircuitColor(proof.circuitType as CircuitId);
+              return (
+                <span className={cn("badge text-xs flex items-center gap-1", colors.bg, colors.text)}>
+                  {circuitDef.recommendedMode === 'gpu_worker' ? 'GPU' :
+                   circuitDef.recommendedMode === 'tee_assisted' ? 'TEE' : 'WASM'}
+                </span>
+              );
+            })()}
           >
+            {/* Circuit info from registry */}
+            {CIRCUIT_REGISTRY[proof.circuitType as CircuitId] && (
+              <div className="mb-4 p-3 rounded-lg bg-surface-elevated/50 border border-surface-border">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className={cn(
+                      "font-medium",
+                      getCircuitColor(proof.circuitType as CircuitId).text
+                    )}>
+                      {CIRCUIT_REGISTRY[proof.circuitType as CircuitId].name}
+                    </h4>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {CIRCUIT_REGISTRY[proof.circuitType as CircuitId].description}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Proof Mode</p>
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full",
+                      CIRCUIT_REGISTRY[proof.circuitType as CircuitId].recommendedMode === 'gpu_worker' && "bg-purple-500/20 text-purple-400",
+                      CIRCUIT_REGISTRY[proof.circuitType as CircuitId].recommendedMode === 'tee_assisted' && "bg-emerald-500/20 text-emerald-400",
+                      CIRCUIT_REGISTRY[proof.circuitType as CircuitId].recommendedMode === 'client_wasm' && "bg-cyan-500/20 text-cyan-400"
+                    )}>
+                      {CIRCUIT_REGISTRY[proof.circuitType as CircuitId].recommendedMode === 'gpu_worker' ? 'GPU Worker' :
+                       CIRCUIT_REGISTRY[proof.circuitType as CircuitId].recommendedMode === 'tee_assisted' ? 'TEE Assisted' : 'Client WASM'}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-surface-border/50 grid grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <p className="text-gray-500">Est. Time</p>
+                    <p className="text-white font-mono">{(CIRCUIT_REGISTRY[proof.circuitType as CircuitId].estimatedTimeMs / 1000).toFixed(1)}s</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Proof Size</p>
+                    <p className="text-white font-mono">{(CIRCUIT_REGISTRY[proof.circuitType as CircuitId].proofSizeBytes / 1024).toFixed(1)} KB</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">FRI Params</p>
+                    <p className="text-brand-400 font-mono">{formatFriParams(CIRCUIT_REGISTRY[proof.circuitType as CircuitId].friParams)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatItem label="Constraint Count" value={proof.circuit.constraintCount.toLocaleString()} />
               <StatItem label="Trace Length" value={proof.circuit.traceLength} />

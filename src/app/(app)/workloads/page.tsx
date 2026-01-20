@@ -1,25 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Search,
-  Filter,
   Cpu,
   Brain,
-  Database,
   Server,
   Shield,
   Zap,
-  Clock,
-  ExternalLink,
   Play,
   Check,
-  ChevronDown,
+  AlertCircle,
+  Square,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useWorkloadDeployment } from "@/lib/hooks/useWorkloadDeployment";
+import { WorkerStatusBanner } from "@/components/workloads/WorkerStatusBanner";
+import { DeploymentProgressModal } from "@/components/workloads/DeploymentProgressModal";
 
-// Workload data
+// Workload data (matches backend workload_types.rs)
 const workloads = [
   {
     id: "qwen-2.5",
@@ -30,9 +30,7 @@ const workloads = [
     color: "text-purple-400",
     bg: "bg-purple-500/20",
     verified: true,
-    stats: {
-      minVRAM: "24GB",
-    },
+    minVramGb: 24,
     tags: ["LLM", "Multimodal", "Inference"],
   },
   {
@@ -44,9 +42,7 @@ const workloads = [
     color: "text-purple-400",
     bg: "bg-purple-500/20",
     verified: true,
-    stats: {
-      minVRAM: "16GB",
-    },
+    minVramGb: 16,
     tags: ["LLM", "Open Source", "Meta AI"],
   },
   {
@@ -58,9 +54,7 @@ const workloads = [
     color: "text-brand-400",
     bg: "bg-brand-500/20",
     verified: true,
-    stats: {
-      minVRAM: "8GB",
-    },
+    minVramGb: 8,
     tags: ["ZK", "Proofs", "GPU"],
   },
   {
@@ -72,9 +66,7 @@ const workloads = [
     color: "text-pink-400",
     bg: "bg-pink-500/20",
     verified: true,
-    stats: {
-      minVRAM: "12GB",
-    },
+    minVramGb: 12,
     tags: ["Image", "Stable Diffusion", "Workflows"],
   },
   {
@@ -86,13 +78,11 @@ const workloads = [
     color: "text-emerald-400",
     bg: "bg-emerald-500/20",
     verified: true,
-    stats: {
-      minVRAM: "4GB",
-    },
+    minVramGb: 4,
     tags: ["Node", "Starknet", "Infrastructure"],
   },
   {
-    id: "stable-diffusion",
+    id: "sdxl",
     name: "Stable Diffusion XL",
     category: "ai",
     description: "High-quality image generation model for creative applications",
@@ -100,13 +90,11 @@ const workloads = [
     color: "text-pink-400",
     bg: "bg-pink-500/20",
     verified: true,
-    stats: {
-      minVRAM: "16GB",
-    },
+    minVramGb: 16,
     tags: ["Image", "Generation", "Creative"],
   },
   {
-    id: "whisper",
+    id: "whisper-large",
     name: "Whisper Large",
     category: "ai",
     description: "OpenAI's speech recognition model for transcription and translation",
@@ -114,9 +102,7 @@ const workloads = [
     color: "text-purple-400",
     bg: "bg-purple-500/20",
     verified: true,
-    stats: {
-      minVRAM: "8GB",
-    },
+    minVramGb: 8,
     tags: ["Audio", "Transcription", "Speech"],
   },
   {
@@ -128,9 +114,7 @@ const workloads = [
     color: "text-cyan-400",
     bg: "bg-cyan-500/20",
     verified: true,
-    stats: {
-      minVRAM: "4GB",
-    },
+    minVramGb: 4,
     tags: ["Cairo", "Execution", "Starknet"],
   },
 ];
@@ -147,32 +131,63 @@ export default function WorkloadsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState<"name">("name");
-  const [deployingId, setDeployingId] = useState<string | null>(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [selectedWorkloadName, setSelectedWorkloadName] = useState("");
+
+  // Use the workload deployment hook
+  const {
+    myWorkers,
+    hasConnectedWorker,
+    isLoadingWorkers,
+    workersError,
+    refreshWorkers,
+    activeDeployment,
+    isDeploying,
+    deploymentError,
+    deploy,
+    stop,
+    canDeploy,
+    getInsufficientVramMessage,
+  } = useWorkloadDeployment();
 
   // Filter and sort workloads
-  const filteredWorkloads = workloads
-    .filter((w) => {
-      if (searchQuery && !w.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      if (selectedCategory !== "all" && w.category !== selectedCategory) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === "name") {
-        return a.name.localeCompare(b.name);
-      }
-      return 0;
-    });
+  const filteredWorkloads = useMemo(() => {
+    return workloads
+      .filter((w) => {
+        if (searchQuery && !w.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+          return false;
+        }
+        if (selectedCategory !== "all" && w.category !== selectedCategory) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "name") {
+          return a.name.localeCompare(b.name);
+        }
+        return 0;
+      });
+  }, [searchQuery, selectedCategory, sortBy]);
 
-  const handleDeploy = async (workloadId: string) => {
-    setDeployingId(workloadId);
-    // Simulate deployment
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setDeployingId(null);
-    // In production, this would trigger actual deployment via CLI/API
+  // Get the active workload (if any worker is running one)
+  const runningWorkloadId = myWorkers.find(w => w.active_workload)?.active_workload;
+
+  const handleDeploy = async (workloadId: string, workloadName: string) => {
+    setSelectedWorkloadName(workloadName);
+    const result = await deploy(workloadId);
+    if (result) {
+      setShowProgressModal(true);
+    }
+  };
+
+  const handleStop = async () => {
+    await stop();
+    setShowProgressModal(false);
+  };
+
+  const handleCloseModal = () => {
+    setShowProgressModal(false);
   };
 
   return (
@@ -184,6 +199,29 @@ export default function WorkloadsPage() {
           Deploy workloads to your connected GPUs and start earning SAGE
         </p>
       </div>
+
+      {/* Worker Status Banner */}
+      <WorkerStatusBanner
+        workers={myWorkers}
+        isLoading={isLoadingWorkers}
+        error={workersError}
+        onRefresh={refreshWorkers}
+      />
+
+      {/* Error Message */}
+      <AnimatePresence>
+        {deploymentError && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="flex items-center gap-3 p-4 rounded-lg bg-red-500/20 border border-red-500/30"
+          >
+            <AlertCircle className="w-5 h-5 text-red-400" />
+            <span className="text-red-300">{deploymentError}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -200,7 +238,7 @@ export default function WorkloadsPage() {
         <div className="flex gap-2">
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+            onChange={(e) => setSortBy(e.target.value as "name")}
             className="input-field min-w-[150px]"
           >
             <option value="name">Name (A-Z)</option>
@@ -235,7 +273,10 @@ export default function WorkloadsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredWorkloads.map((workload, idx) => {
           const Icon = workload.icon;
-          const isDeploying = deployingId === workload.id;
+          const isRunning = runningWorkloadId === workload.id;
+          const canDeployThis = canDeploy(workload.minVramGb);
+          const insufficientMessage = getInsufficientVramMessage(workload.minVramGb);
+          const isDisabled = !hasConnectedWorker || !canDeployThis || isDeploying;
 
           return (
             <motion.div
@@ -243,7 +284,10 @@ export default function WorkloadsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="glass-card overflow-hidden group"
+              className={cn(
+                "glass-card overflow-hidden group",
+                isRunning && "ring-2 ring-blue-500/50"
+              )}
             >
               {/* Header */}
               <div className="p-4 border-b border-surface-border/50">
@@ -261,6 +305,9 @@ export default function WorkloadsPage() {
                           </div>
                         )}
                       </div>
+                      {isRunning && (
+                        <span className="text-xs text-blue-400">Running</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -288,33 +335,50 @@ export default function WorkloadsPage() {
                 <div className="mb-4">
                   <div className="p-2 rounded-lg bg-surface-elevated/50">
                     <p className="text-xs text-gray-500">Min VRAM</p>
-                    <p className="text-sm font-medium text-white">{workload.stats.minVRAM}</p>
+                    <p className="text-sm font-medium text-white">{workload.minVramGb}GB</p>
                   </div>
                 </div>
 
-                {/* Deploy Button */}
-                <button
-                  onClick={() => handleDeploy(workload.id)}
-                  disabled={isDeploying}
-                  className={cn(
-                    "w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2",
-                    isDeploying
-                      ? "bg-brand-600/50 text-white cursor-wait"
-                      : "bg-brand-600 hover:bg-brand-500 text-white"
-                  )}
-                >
-                  {isDeploying ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Deploying...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4" />
-                      Deploy to GPU
-                    </>
-                  )}
-                </button>
+                {/* Insufficient VRAM Warning */}
+                {hasConnectedWorker && insufficientMessage && (
+                  <div className="mb-3 p-2 rounded-lg bg-amber-900/20 border border-amber-800/30">
+                    <p className="text-xs text-amber-400">{insufficientMessage}</p>
+                  </div>
+                )}
+
+                {/* Deploy / Stop Button */}
+                {isRunning ? (
+                  <button
+                    onClick={handleStop}
+                    className="w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white"
+                  >
+                    <Square className="w-4 h-4" />
+                    Stop Workload
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleDeploy(workload.id, workload.name)}
+                    disabled={isDisabled}
+                    className={cn(
+                      "w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2",
+                      isDisabled
+                        ? "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                        : "bg-brand-600 hover:bg-brand-500 text-white"
+                    )}
+                  >
+                    {isDeploying ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Deploying...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        Deploy to GPU
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </motion.div>
           );
@@ -327,6 +391,17 @@ export default function WorkloadsPage() {
           <Cpu className="w-12 h-12 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400">No workloads found matching your criteria</p>
         </div>
+      )}
+
+      {/* Deployment Progress Modal */}
+      {activeDeployment && (
+        <DeploymentProgressModal
+          deployment={activeDeployment}
+          workloadName={selectedWorkloadName || activeDeployment.workload_id}
+          isOpen={showProgressModal}
+          onClose={handleCloseModal}
+          onStop={handleStop}
+        />
       )}
     </div>
   );

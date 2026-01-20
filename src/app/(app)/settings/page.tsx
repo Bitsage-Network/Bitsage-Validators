@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useAccount, useDisconnect } from "@starknet-react/core";
+import { useState, useEffect, useCallback } from "react";
+import { useAccount, useDisconnect, useSendTransaction } from "@starknet-react/core";
 import {
   Settings,
   User,
@@ -19,18 +19,32 @@ import {
   Wallet,
   Key,
   AlertTriangle,
+  Server,
+  Loader2,
+  Zap,
+  Eye,
+  Info,
+  Sliders,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { EXTERNAL_LINKS } from "@/lib/contracts/addresses";
+import {
+  buildRegisterValidatorCall,
+  buildExitValidatorCall,
+  useIsValidator,
+  useValidatorInfo,
+} from "@/lib/contracts";
 
 export default function SettingsPage() {
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
   const [copied, setCopied] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
-  
-  // Settings state
+  const [commissionBps, setCommissionBps] = useState(500); // 5% default
+  const [regTxHash, setRegTxHash] = useState<string | null>(null);
+
+  // Settings state with localStorage persistence
   const [notifications, setNotifications] = useState({
     rewards: true,
     jobs: true,
@@ -39,6 +53,88 @@ export default function SettingsPage() {
   });
   const [theme, setTheme] = useState<"dark" | "light" | "system">("dark");
   const [currency, setCurrency] = useState("USD");
+  const [fmdPrecision, setFmdPrecision] = useState(16); // Default 16 bits
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedNotifications = localStorage.getItem("bitsage_notifications");
+      if (savedNotifications) {
+        setNotifications(JSON.parse(savedNotifications));
+      }
+      const savedTheme = localStorage.getItem("bitsage_theme") as "dark" | "light" | "system";
+      if (savedTheme) {
+        setTheme(savedTheme);
+      }
+      const savedCurrency = localStorage.getItem("bitsage_currency");
+      if (savedCurrency) {
+        setCurrency(savedCurrency);
+      }
+      const savedFmd = localStorage.getItem("bitsage_fmd_precision");
+      if (savedFmd) {
+        setFmdPrecision(parseInt(savedFmd, 10));
+      }
+    } catch (e) {
+      console.error("Failed to load settings from localStorage:", e);
+    }
+  }, []);
+
+  // Save notifications to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem("bitsage_notifications", JSON.stringify(notifications));
+  }, [notifications]);
+
+  // Save theme to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem("bitsage_theme", theme);
+  }, [theme]);
+
+  // Save currency to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem("bitsage_currency", currency);
+  }, [currency]);
+
+  // Save FMD precision to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem("bitsage_fmd_precision", fmdPrecision.toString());
+  }, [fmdPrecision]);
+
+  // Validator status from on-chain
+  const { data: isValidator, refetch: refetchValidatorStatus } = useIsValidator(address);
+  const { data: validatorInfo } = useValidatorInfo(address);
+
+  // Transaction hook
+  const { send: sendTransaction, isPending: txPending, data: txData } = useSendTransaction({});
+
+  // Handle validator registration
+  const handleRegisterValidator = useCallback(async () => {
+    if (!address) return;
+    try {
+      const registerCall = buildRegisterValidatorCall(address, commissionBps, "0", "sepolia");
+      await sendTransaction([registerCall]);
+    } catch (err) {
+      console.error("Validator registration failed:", err);
+    }
+  }, [address, commissionBps, sendTransaction]);
+
+  // Handle validator exit
+  const handleExitValidator = useCallback(async () => {
+    if (!address) return;
+    try {
+      const exitCall = buildExitValidatorCall("sepolia");
+      await sendTransaction([exitCall]);
+    } catch (err) {
+      console.error("Validator exit failed:", err);
+    }
+  }, [address, sendTransaction]);
+
+  // Update tx hash and refetch status when transaction succeeds
+  useEffect(() => {
+    if (txData?.transaction_hash) {
+      setRegTxHash(txData.transaction_hash);
+      setTimeout(() => refetchValidatorStatus(), 3000);
+    }
+  }, [txData, refetchValidatorStatus]);
 
   useEffect(() => {
     setIsDemoMode(localStorage.getItem("bitsage_demo_mode") === "true");
@@ -147,6 +243,140 @@ export default function SettingsPage() {
             <LogOut className="w-4 h-4" />
             {isDemoMode ? "Exit Demo Mode" : "Disconnect Wallet"}
           </button>
+        </div>
+      </motion.div>
+
+      {/* Validator Registration */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="glass-card"
+      >
+        <div className="p-4 border-b border-surface-border">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Server className="w-5 h-5 text-brand-400" />
+            Validator Status
+          </h2>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Current Status */}
+          <div className="flex items-center justify-between p-4 rounded-xl bg-surface-elevated border border-surface-border">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "w-3 h-3 rounded-full",
+                isValidator ? "bg-emerald-400 animate-pulse" : "bg-gray-500"
+              )} />
+              <div>
+                <p className="text-white font-medium">
+                  {isValidator ? "Registered Validator" : "Not Registered"}
+                </p>
+                <p className="text-sm text-gray-400">
+                  {isValidator ? "Your node is eligible to receive jobs" : "Register to start validating"}
+                </p>
+              </div>
+            </div>
+            {isValidator && (
+              <span className="badge badge-success">Active</span>
+            )}
+          </div>
+
+          {!isValidator ? (
+            <>
+              {/* Commission Setting */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  Commission Rate (%)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={commissionBps / 100}
+                    onChange={(e) => setCommissionBps(Math.min(10000, Math.max(0, parseFloat(e.target.value) * 100 || 0)))}
+                    className="input-field flex-1"
+                    placeholder="5"
+                  />
+                  <span className="text-gray-400">%</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  The percentage you take from delegator rewards
+                </p>
+              </div>
+
+              {/* Register Button */}
+              <button
+                onClick={handleRegisterValidator}
+                disabled={txPending || !address || isDemoMode}
+                className="w-full btn-glow py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {txPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Registering...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    Register as Validator
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Validator Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg bg-surface-card border border-surface-border">
+                  <p className="text-xs text-gray-400">Commission</p>
+                  <p className="text-lg font-semibold text-white">
+                    {validatorInfo ? `${Number(validatorInfo) / 100}%` : "5%"}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-surface-card border border-surface-border">
+                  <p className="text-xs text-gray-400">Status</p>
+                  <p className="text-lg font-semibold text-emerald-400">Active</p>
+                </div>
+              </div>
+
+              {/* Exit Button */}
+              <button
+                onClick={handleExitValidator}
+                disabled={txPending || isDemoMode}
+                className="w-full p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {txPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="w-4 h-4" />
+                    Exit Validator Set
+                  </>
+                )}
+              </button>
+            </>
+          )}
+
+          {/* Transaction Success */}
+          {regTxHash && (
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-emerald-400">Transaction submitted!</span>
+                <a
+                  href={`https://sepolia.starkscan.co/tx/${regTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-400 hover:text-brand-300 flex items-center gap-1 text-sm"
+                >
+                  View <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -284,9 +514,115 @@ export default function SettingsPage() {
               <p className="font-medium text-white">Transaction Signing</p>
             </div>
             <p className="text-sm text-gray-400">
-              All transactions require explicit approval in your wallet. 
+              All transactions require explicit approval in your wallet.
               Always verify transaction details before signing.
             </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Privacy Settings - FMD */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35 }}
+        className="glass-card"
+      >
+        <div className="p-4 border-b border-surface-border">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Eye className="w-5 h-5 text-brand-400" />
+            Privacy Settings
+          </h2>
+        </div>
+        <div className="p-6 space-y-6">
+          {/* FMD Precision */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <label className="block text-sm font-medium text-white">
+                  Fuzzy Message Detection Precision
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Higher precision = lower false positives, but more processing per transaction
+                </p>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-500/20 text-brand-400 font-medium">
+                <Sliders className="w-4 h-4" />
+                {fmdPrecision} bits
+              </div>
+            </div>
+
+            {/* Slider */}
+            <div className="space-y-3">
+              <input
+                type="range"
+                min="1"
+                max="24"
+                value={fmdPrecision}
+                onChange={(e) => setFmdPrecision(parseInt(e.target.value))}
+                className="w-full h-2 rounded-full bg-surface-elevated appearance-none cursor-pointer accent-brand-500"
+              />
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>1 bit (high FP)</span>
+                <span>12 bits</span>
+                <span>24 bits (low FP)</span>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="p-3 rounded-lg bg-surface-elevated border border-surface-border">
+                <p className="text-xs text-gray-400">False Positive Rate</p>
+                <p className="text-lg font-semibold text-white">
+                  {(100 / Math.pow(2, fmdPrecision)).toFixed(fmdPrecision > 10 ? 6 : 4)}%
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-surface-elevated border border-surface-border">
+                <p className="text-xs text-gray-400">Recommended For</p>
+                <p className="text-lg font-semibold text-white">
+                  {fmdPrecision <= 8
+                    ? "Low volume"
+                    : fmdPrecision <= 16
+                      ? "Normal use"
+                      : "High volume"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Info Box */}
+          <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-purple-300">What is FMD?</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Fuzzy Message Detection allows third-party servers to scan for your payments
+                  without learning exactly which transactions are yours. The precision setting
+                  controls the trade-off between privacy and efficiency.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Detection Key Export */}
+          <div className="p-4 rounded-xl bg-surface-elevated border border-surface-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Key className="w-4 h-4 text-brand-400" />
+                  <p className="font-medium text-white">Detection Key</p>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Export for third-party scanning services
+                </p>
+              </div>
+              <button
+                className="px-4 py-2 rounded-lg bg-surface-card border border-surface-border hover:border-brand-500/50 transition-colors text-white text-sm font-medium"
+              >
+                Export Key
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>

@@ -40,12 +40,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { LogoIcon } from "@/components/ui/Logo";
 import Link from "next/link";
-import { 
-  formatObelyskAddress, 
-  getCopyableAddress, 
+import {
+  formatObelyskAddress,
+  getCopyableAddress,
   createPaymentUri,
-  OBELYSK_PREFIX 
+  OBELYSK_PREFIX
 } from "@/lib/obelysk/address";
+import { useOnChainNetworkGraph } from "@/lib/hooks/useOnChainData";
+import { useTransactionHistory, type OnChainTransaction } from "@/lib/hooks/useTransactionHistory";
+import { useSafeObelyskWallet } from "@/lib/obelysk/ObelyskWalletContext";
+import { useWalletPageData, usePrivacyStats } from "@/lib/hooks/useApiData";
 
 // ============================================================================
 // TYPES
@@ -60,7 +64,44 @@ interface NetworkNode {
   label: string;
   x: number;
   y: number;
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+interface NetworkEdge {
+  from: string;
+  to: string;
+  type: string;
+  amount: string;
+  isPrivate: boolean;
+  isYourActivity: boolean;
+}
+
+interface Transaction {
+  id: string;
+  type: "send" | "receive" | "stake" | "rollover" | "gpu_earning";
+  amount: string;
+  recipient: string | null;
+  recipientName: string | null;
+  timestamp: number;
+  isPrivate: boolean;
+  status: string;
+  txHash: string | null;
+}
+
+interface WalletData {
+  publicBalance: string;
+  privateBalance: string;
+  pendingEarnings: string;
+  totalUsdValue: string;
+}
+
+interface PoolStats {
+  totalDeposits: string;
+  totalWithdrawals: string;
+  activeValidators: number;
+  avgAPR: string;
+  yourStake: string;
+  yourEarnings: string;
 }
 
 // ============================================================================
@@ -266,6 +307,135 @@ const mockPoolStats = {
 
 export default function ObelyskWalletPage() {
   const { address } = useAccount();
+
+  // Real wallet balances from Obelysk context (with safe fallbacks)
+  const obelyskWallet = useSafeObelyskWallet();
+  const realBalance = obelyskWallet?.balance ?? { public: "0", private: "0", pending: "0" };
+  const totalBalanceUsd = obelyskWallet?.totalBalanceUsd ?? "$0.00";
+  const isPrivateRevealed = obelyskWallet?.isPrivateRevealed ?? false;
+  const revealPrivateBalance = obelyskWallet?.revealPrivateBalance ?? (async () => {});
+  const hidePrivateBalance = obelyskWallet?.hidePrivateBalance ?? (() => {});
+  const contextRollover = obelyskWallet?.rollover ?? (async () => {});
+  const contextRagequit = obelyskWallet?.ragequit ?? (async () => {});
+  const contextProvingState = obelyskWallet?.provingState ?? "idle";
+  const contextProvingTime = obelyskWallet?.provingTime ?? null;
+  const contextResetProvingState = obelyskWallet?.resetProvingState ?? (() => {});
+
+  // On-chain network graph data
+  const onChainGraph = useOnChainNetworkGraph();
+
+  // On-chain transaction history
+  const { transactions: onChainTxs, isLoading: txLoading } = useTransactionHistory(address);
+
+  // Coordinator API data (database-backed transactions and summary)
+  const {
+    transactions: dbTransactions,
+    summary: walletSummary,
+    earnings: earningsSummary,
+    isLoading: apiLoading,
+    wsConnected,
+  } = useWalletPageData(address);
+
+  // Privacy stats from coordinator
+  const { data: privacyStats } = usePrivacyStats();
+
+  // Compute real pool stats from on-chain network graph
+  const onChainPoolStats = useMemo(() => {
+    // Extract data from on-chain nodes
+    const userNode = onChainGraph.nodes.find(n => n.type === 'you');
+    const poolNodes = onChainGraph.nodes.filter(n => n.type === 'pool');
+    const validatorNodes = onChainGraph.nodes.filter(n => n.type === 'validator');
+
+    // Calculate total TVL from all pools
+    const totalTVL = poolNodes.reduce((sum, pool) => {
+      const tvl = parseFloat(String(pool.tvl || '0').replace(/,/g, ''));
+      return sum + (isNaN(tvl) ? 0 : tvl);
+    }, 0);
+
+    // User's stake from their node balance
+    const yourStake = userNode?.balance ? parseFloat(String(userNode.balance)) : 0;
+
+    // Count active validators from edges (those with delegations)
+    const activeValidators = validatorNodes.length;
+
+    // Estimate APR based on validator earnings (rough calculation)
+    const totalDailyEarnings = validatorNodes.reduce((sum, v) => {
+      const earnings = String(v.earnings || '0/day').replace('/day', '');
+      return sum + (parseFloat(earnings) || 0);
+    }, 0);
+    const estimatedAPR = totalTVL > 0 ? ((totalDailyEarnings * 365) / totalTVL * 100).toFixed(1) : '0.0';
+
+    return {
+      totalDeposits: totalTVL > 1000 ? `${(totalTVL / 1000).toFixed(0)}k SAGE` : `${totalTVL.toFixed(0)} SAGE`,
+      totalWithdrawals: "—",
+      activeValidators,
+      avgAPR: `${estimatedAPR}%`,
+      yourStake: `${yourStake.toFixed(2)} SAGE`,
+      yourEarnings: onChainGraph.isLoading ? "Loading..." : "+0.00 SAGE",
+    };
+  }, [onChainGraph.nodes, onChainGraph.isLoading]);
+
+  // Transform and combine transactions from both sources
+  const displayTransactions = useMemo(() => {
+    // Map on-chain transactions
+    const onChainMapped = onChainTxs.map((tx: OnChainTransaction) => ({
+      id: tx.id,
+      type: tx.type as "send" | "receive" | "stake" | "rollover" | "gpu_earning",
+      amount: tx.type === 'send' ? `-${tx.amountFormatted}` : `+${tx.amountFormatted}`,
+      recipient: tx.type === 'send' ? tx.to : tx.from,
+      recipientName: null,
+      timestamp: tx.timestamp.getTime(),
+      isPrivate: false,
+      status: tx.status,
+      txHash: tx.txHash,
+    }));
+
+    // Map database transactions (payments, private transfers)
+    const dbMapped = dbTransactions.map((tx) => ({
+      id: tx.id,
+      type: tx.tx_type === 'payment' ? 'gpu_earning' as const :
+            tx.tx_type === 'private_transfer_in' ? 'receive' as const :
+            tx.tx_type === 'private_transfer_out' ? 'send' as const :
+            'receive' as const,
+      amount: tx.direction === 'in' ? `+${tx.amount_formatted}` : `-${tx.amount_formatted}`,
+      recipient: tx.counterparty || null,
+      recipientName: tx.tx_type === 'payment' ? 'GPU Job Payment' : null,
+      timestamp: tx.timestamp * 1000, // Convert to ms
+      isPrivate: tx.is_private,
+      status: tx.status,
+      txHash: tx.tx_hash || null,
+    }));
+
+    // Combine and deduplicate by txHash
+    const txHashSet = new Set<string>();
+    const combined = [...dbMapped, ...onChainMapped].filter((tx) => {
+      if (!tx.txHash) return true; // Keep txs without hash
+      if (txHashSet.has(tx.txHash)) return false;
+      txHashSet.add(tx.txHash);
+      return true;
+    });
+
+    // Sort by timestamp descending
+    return combined.sort((a, b) => b.timestamp - a.timestamp);
+  }, [onChainTxs, dbTransactions]);
+
+  // Use real wallet data from context + API earnings
+  const walletData = useMemo(() => ({
+    publicBalance: realBalance?.public || "0.00",
+    privateBalance: realBalance?.private || "0.00",
+    pendingEarnings: earningsSummary?.pending_earnings || realBalance?.pending || "0.00",
+    totalUsdValue: totalBalanceUsd || "$0.00",
+  }), [realBalance, totalBalanceUsd, earningsSummary]);
+
+  // Combine pool stats with privacy stats from coordinator
+  const poolStats = useMemo(() => ({
+    ...onChainPoolStats,
+    totalPrivateDeposits: privacyStats?.total_private_deposits || "0",
+    activePrivacyAccounts: privacyStats?.active_privacy_accounts || 0,
+    totalPools: privacyStats?.total_pools || 0,
+    averageAnonymitySet: privacyStats?.average_anonymity_set || 0,
+  }), [onChainPoolStats, privacyStats]);
+
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [showPrivateBalance, setShowPrivateBalance] = useState(false);
   const [isSigningToReveal, setIsSigningToReveal] = useState(false);
@@ -277,9 +447,9 @@ export default function ObelyskWalletPage() {
   const [showRolloverModal, setShowRolloverModal] = useState(false);
   const [showRagequitModal, setShowRagequitModal] = useState(false);
   
-  // Proving flow
-  const [provingState, setProvingState] = useState<ProvingState>("idle");
-  const [provingTime, setProvingTime] = useState<number | null>(null);
+  // Use proving state from context (mapped to local ProvingState type)
+  const provingState: ProvingState = contextProvingState;
+  const provingTime = contextProvingTime;
 
   // Explorer state
   const [selectedNode, setSelectedNode] = useState<NetworkNode | null>(null);
@@ -290,41 +460,41 @@ export default function ObelyskWalletPage() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleRevealPrivate = async () => {
+  // Use real reveal function from context
+  const handleRevealPrivate = useCallback(async () => {
     setIsSigningToReveal(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setShowPrivateBalance(true);
-    setIsSigningToReveal(false);
-  };
+    try {
+      await revealPrivateBalance();
+      setShowPrivateBalance(true);
+    } catch (error) {
+      console.error("Failed to reveal private balance:", error);
+    } finally {
+      setIsSigningToReveal(false);
+    }
+  }, [revealPrivateBalance]);
 
-  const handleRollover = async () => {
-    setProvingState("proving");
-    const startTime = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 150));
-    setProvingTime(Date.now() - startTime);
-    setProvingState("sending");
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setProvingState("confirming");
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    setProvingState("confirmed");
-  };
+  // Use real rollover from context
+  const handleRollover = useCallback(async () => {
+    try {
+      await contextRollover();
+    } catch (error) {
+      console.error("Rollover failed:", error);
+    }
+  }, [contextRollover]);
 
-  const handleRagequit = async () => {
-    setProvingState("proving");
-    const startTime = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 200));
-    setProvingTime(Date.now() - startTime);
-    setProvingState("sending");
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setProvingState("confirming");
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setProvingState("confirmed");
-  };
+  // Use real ragequit from context
+  const handleRagequit = useCallback(async () => {
+    try {
+      await contextRagequit();
+    } catch (error) {
+      console.error("Ragequit failed:", error);
+    }
+  }, [contextRagequit]);
 
-  const resetProvingState = () => {
-    setProvingState("idle");
-    setProvingTime(null);
-  };
+  // Use context reset function
+  const resetProvingState = useCallback(() => {
+    contextResetProvingState();
+  }, [contextResetProvingState]);
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   
@@ -359,8 +529,25 @@ export default function ObelyskWalletPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 ml-auto sm:ml-0">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs sm:text-sm text-emerald-400">Connected</span>
+          {(txLoading || apiLoading) ? (
+            <>
+              <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 text-brand-400 animate-spin" />
+              <span className="text-xs sm:text-sm text-brand-400">Loading...</span>
+            </>
+          ) : (
+            <>
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                wsConnected ? "bg-emerald-400 animate-pulse" : "bg-yellow-400"
+              )} />
+              <span className={cn(
+                "text-xs sm:text-sm",
+                wsConnected ? "text-emerald-400" : "text-yellow-400"
+              )}>
+                {wsConnected ? "Live" : "Polling"}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -396,6 +583,8 @@ export default function ObelyskWalletPage() {
             showPrivateBalance={showPrivateBalance}
             isSigningToReveal={isSigningToReveal}
             copiedField={copiedField}
+            transactions={displayTransactions}
+            walletData={walletData}
             onRevealPrivate={handleRevealPrivate}
             onHidePrivate={() => setShowPrivateBalance(false)}
             onCopy={copyToClipboard}
@@ -411,7 +600,8 @@ export default function ObelyskWalletPage() {
         {activeTab === "activity" && (
           <ActivityTab
             key="activity"
-            transactions={mockTransactions}
+            transactions={displayTransactions}
+            isLoading={txLoading}
             formatAddress={formatAddress}
             formatTimeAgo={formatTimeAgo}
           />
@@ -420,11 +610,33 @@ export default function ObelyskWalletPage() {
         {activeTab === "explorer" && (
           <ExplorerTab
             key="explorer"
-            nodes={mockNetworkNodes}
-            edges={mockNetworkEdges}
-            poolStats={mockPoolStats}
+            nodes={onChainGraph.nodes.map(n => ({
+              id: n.id,
+              type: n.type as "you" | "pool" | "validator" | "client",
+              label: n.label,
+              x: n.x,
+              y: n.y,
+              balance: n.balance,
+              isPrivate: n.isPrivate,
+              tvl: n.tvl,
+              validators: n.validators,
+              earnings: n.earnings,
+              uptime: n.uptime,
+              jobs: n.jobs,
+              spent: n.spent,
+            }))}
+            edges={onChainGraph.edges.map(e => ({
+              from: e.from,
+              to: e.to,
+              type: e.type,
+              amount: e.amount ?? '',
+              isPrivate: e.isPrivate ?? false,
+              isYourActivity: e.isYourActivity ?? false,
+            }))}
+            poolStats={onChainPoolStats}
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
+            isLoading={onChainGraph.isLoading}
           />
         )}
       </AnimatePresence>
@@ -436,8 +648,9 @@ export default function ObelyskWalletPage() {
         provingState={provingState}
         provingTime={provingTime}
         onRollover={handleRollover}
+        walletData={walletData}
       />
-      
+
       <RagequitModal
         show={showRagequitModal}
         onClose={() => { setShowRagequitModal(false); resetProvingState(); }}
@@ -447,6 +660,7 @@ export default function ObelyskWalletPage() {
         onRagequit={handleRagequit}
         address={address}
         formatAddress={formatAddress}
+        walletData={walletData}
       />
 
       <PayModal
@@ -475,6 +689,8 @@ function OverviewTab({
   showPrivateBalance,
   isSigningToReveal,
   copiedField,
+  transactions,
+  walletData,
   onRevealPrivate,
   onHidePrivate,
   onCopy,
@@ -489,6 +705,8 @@ function OverviewTab({
   showPrivateBalance: boolean;
   isSigningToReveal: boolean;
   copiedField: string | null;
+  transactions: Transaction[];
+  walletData: WalletData;
   onRevealPrivate: () => void;
   onHidePrivate: () => void;
   onCopy: (text: string, field: string) => void;
@@ -510,13 +728,13 @@ function OverviewTab({
       <div className="glass-card overflow-hidden">
         <div className="p-4 sm:p-6 text-center bg-gradient-to-b from-surface-card to-surface-elevated">
           <p className="text-3xl sm:text-4xl font-bold text-white mb-2">
-            {mockWalletData.totalUsdValue}
+            {walletData.totalUsdValue}
           </p>
-          
+
           <div className="flex items-center justify-center gap-1.5 sm:gap-2 mb-3 sm:mb-4 flex-wrap">
             {showPrivateBalance ? (
               <span className="text-base sm:text-lg text-white">
-                {mockWalletData.privateBalance} SAGE
+                {walletData.privateBalance} SAGE
               </span>
             ) : (
               <span className="text-base sm:text-lg text-brand-400 font-mono tracking-wider">
@@ -539,17 +757,17 @@ function OverviewTab({
             </button>
           </div>
 
-          {parseFloat(mockWalletData.pendingEarnings) > 0 && (
+          {parseFloat(walletData.pendingEarnings) > 0 && (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-500/20 border border-brand-500/30 mb-4">
               <RefreshCw className="w-3.5 h-3.5 text-brand-400" />
               <span className="text-sm text-brand-400">
-                +{mockWalletData.pendingEarnings} SAGE pending
+                +{walletData.pendingEarnings} SAGE pending
               </span>
             </div>
           )}
 
           <p className="text-sm text-gray-500">
-            {mockWalletData.publicBalance} SAGE available to fund
+            {walletData.publicBalance} SAGE available to fund
           </p>
         </div>
 
@@ -595,27 +813,27 @@ function OverviewTab({
             <Eye className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400" />
             <span className="text-[10px] sm:text-xs text-gray-400">Public</span>
           </div>
-          <p className="text-base sm:text-lg font-bold text-white truncate">{mockWalletData.publicBalance}</p>
+          <p className="text-base sm:text-lg font-bold text-white truncate">{walletData.publicBalance}</p>
           <p className="text-[10px] sm:text-xs text-gray-500">SAGE</p>
         </div>
-        
+
         <div className="glass-card p-3 sm:p-4 bg-gradient-to-br from-brand-600/10 to-purple-600/10 border-brand-500/30">
           <div className="flex items-center gap-1 sm:gap-2 mb-1 sm:mb-2">
             <EyeOff className="w-3 h-3 sm:w-4 sm:h-4 text-brand-400" />
             <span className="text-[10px] sm:text-xs text-brand-400">Private</span>
           </div>
           <p className="text-base sm:text-lg font-bold text-brand-400 font-mono truncate">
-            {showPrivateBalance ? mockWalletData.privateBalance : "•••••"}
+            {showPrivateBalance ? walletData.privateBalance : "•••••"}
           </p>
           <p className="text-[10px] sm:text-xs text-gray-500">SAGE</p>
         </div>
-        
+
         <div className="glass-card p-3 sm:p-4">
           <div className="flex items-center gap-1 sm:gap-2 mb-1 sm:mb-2">
             <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-orange-400" />
             <span className="text-[10px] sm:text-xs text-orange-400">Pending</span>
           </div>
-          <p className="text-base sm:text-lg font-bold text-orange-400 truncate">+{mockWalletData.pendingEarnings}</p>
+          <p className="text-base sm:text-lg font-bold text-orange-400 truncate">+{walletData.pendingEarnings}</p>
           <p className="text-[10px] sm:text-xs text-gray-500">SAGE</p>
         </div>
       </div>
@@ -669,7 +887,7 @@ function OverviewTab({
           <h2 className="font-semibold text-white">Recent Activity</h2>
         </div>
         <div className="divide-y divide-surface-border">
-          {mockTransactions.slice(0, 3).map((tx) => (
+          {transactions.slice(0, 3).map((tx) => (
             <TransactionRow
               key={tx.id}
               tx={tx}
@@ -697,10 +915,12 @@ function OverviewTab({
 
 function ActivityTab({
   transactions,
+  isLoading,
   formatAddress,
   formatTimeAgo,
 }: {
-  transactions: typeof mockTransactions;
+  transactions: Transaction[];
+  isLoading?: boolean;
   formatAddress: (addr: string) => string;
   formatTimeAgo: (timestamp: number) => string;
 }) {
@@ -711,10 +931,23 @@ function ActivityTab({
     if (filter === "sent" && tx.type !== "send") return false;
     if (filter === "received" && tx.type !== "receive") return false;
     if (filter === "earnings" && !["gpu_earning", "rollover"].includes(tx.type)) return false;
-    if (searchQuery && !tx.recipientName?.toLowerCase().includes(searchQuery.toLowerCase()) && 
+    if (searchQuery && !tx.recipientName?.toLowerCase().includes(searchQuery.toLowerCase()) &&
         !tx.recipient?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+
+  if (isLoading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="glass-card p-8 flex items-center justify-center"
+      >
+        <Loader2 className="w-6 h-6 text-brand-400 animate-spin mr-2" />
+        <span className="text-gray-400">Loading transactions...</span>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -812,7 +1045,7 @@ function calculateCircularLayout(
 
 function calculateHierarchicalLayout(
   nodes: NetworkNode[],
-  edges: typeof mockNetworkEdges,
+  edges: NetworkEdge[],
   startX: number,
   startY: number,
   width: number,
@@ -862,7 +1095,7 @@ function calculateHierarchicalLayout(
 
 function calculateForceDirectedLayout(
   nodes: NetworkNode[],
-  edges: typeof mockNetworkEdges,
+  edges: NetworkEdge[],
   centerX: number,
   centerY: number,
   iterations: number = 150
@@ -1033,12 +1266,14 @@ function ExplorerTab({
   poolStats,
   selectedNode,
   onSelectNode,
+  isLoading = false,
 }: {
-  nodes: typeof mockNetworkNodes;
-  edges: typeof mockNetworkEdges;
-  poolStats: typeof mockPoolStats;
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  poolStats: PoolStats;
   selectedNode: NetworkNode | null;
   onSelectNode: (node: NetworkNode | null) => void;
+  isLoading?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(0.8);
@@ -1320,6 +1555,14 @@ function ExplorerTab({
     >
       {/* Network Graph Canvas - Full Height with Floating Controls */}
       <div className="glass-card overflow-hidden rounded-xl relative" style={{ height: "calc(100vh - 240px)", minHeight: 500 }}>
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+              <span className="text-sm text-gray-300">Loading on-chain data...</span>
+            </div>
+          </div>
+        )}
         <canvas
           ref={canvasRef}
           className="w-full h-full"
@@ -1335,6 +1578,11 @@ function ExplorerTab({
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
           {/* Left: Stats Pills */}
           <div className="flex items-center gap-2 pointer-events-auto">
+            {/* On-Chain Data Indicator */}
+            <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400 font-medium uppercase">On-Chain</span>
+            </div>
             <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10">
               <span className="text-[10px] text-gray-400 uppercase">Nodes</span>
               <span className="text-sm font-bold text-white">{nodeCount}</span>
@@ -1473,7 +1721,7 @@ function ExplorerTab({
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Balance</p>
                     <p className="text-sm font-medium text-brand-400 font-mono">
-                      {selectedNode.isPrivate ? "•••••" : selectedNode.balance} SAGE
+                      {selectedNode.isPrivate ? "•••••" : String(selectedNode.balance)} SAGE
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-surface-elevated">
@@ -1488,11 +1736,11 @@ function ExplorerTab({
                 <>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">TVL</p>
-                    <p className="text-sm font-medium text-white">{selectedNode.tvl} SAGE</p>
+                    <p className="text-sm font-medium text-white">{String(selectedNode.tvl)} SAGE</p>
                   </div>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Validators</p>
-                    <p className="text-sm font-medium text-white">{selectedNode.validators}</p>
+                    <p className="text-sm font-medium text-white">{String(selectedNode.validators)}</p>
                   </div>
                 </>
               )}
@@ -1500,11 +1748,11 @@ function ExplorerTab({
                 <>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Earnings</p>
-                    <p className="text-sm font-medium text-emerald-400">{selectedNode.earnings}</p>
+                    <p className="text-sm font-medium text-emerald-400">{String(selectedNode.earnings)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Uptime</p>
-                    <p className="text-sm font-medium text-white">{selectedNode.uptime}</p>
+                    <p className="text-sm font-medium text-white">{String(selectedNode.uptime)}</p>
                   </div>
                 </>
               )}
@@ -1512,11 +1760,11 @@ function ExplorerTab({
                 <>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Jobs</p>
-                    <p className="text-sm font-medium text-white">{selectedNode.jobs}</p>
+                    <p className="text-sm font-medium text-white">{String(selectedNode.jobs)}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-surface-elevated">
                     <p className="text-xs text-gray-500 mb-1">Total Spent</p>
-                    <p className="text-sm font-medium text-white">{selectedNode.spent} SAGE</p>
+                    <p className="text-sm font-medium text-white">{String(selectedNode.spent)} SAGE</p>
                   </div>
                 </>
               )}
@@ -1538,7 +1786,7 @@ function TransactionRow({
   formatTimeAgo,
   expanded = false,
 }: {
-  tx: typeof mockTransactions[0];
+  tx: Transaction;
   formatAddress: (addr: string) => string;
   formatTimeAgo: (timestamp: number) => string;
   expanded?: boolean;
@@ -1624,12 +1872,14 @@ function RolloverModal({
   provingState,
   provingTime,
   onRollover,
+  walletData,
 }: {
   show: boolean;
   onClose: () => void;
   provingState: ProvingState;
   provingTime: number | null;
   onRollover: () => void;
+  walletData: WalletData;
 }) {
   if (!show) return null;
 
@@ -1674,7 +1924,7 @@ function RolloverModal({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-400">Pending Earnings</span>
                   <span className="text-lg font-bold text-emerald-400">
-                    +{mockWalletData.pendingEarnings} SAGE
+                    +{walletData.pendingEarnings} SAGE
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500">
@@ -1714,6 +1964,7 @@ function RagequitModal({
   onRagequit,
   address,
   formatAddress,
+  walletData,
 }: {
   show: boolean;
   onClose: () => void;
@@ -1723,6 +1974,7 @@ function RagequitModal({
   onRagequit: () => void;
   address: string | undefined;
   formatAddress: (addr: string) => string;
+  walletData: WalletData;
 }) {
   if (!show) return null;
 
@@ -1769,7 +2021,7 @@ function RagequitModal({
               <div className="p-4 rounded-xl bg-surface-elevated border border-surface-border">
                 <p className="text-xs text-gray-500 mb-1">BALANCE TO WITHDRAW</p>
                 <p className="text-2xl font-bold text-white">
-                  {showPrivateBalance ? mockWalletData.privateBalance : "••••"} SAGE
+                  {showPrivateBalance ? walletData.privateBalance : "••••"} SAGE
                 </p>
               </div>
               

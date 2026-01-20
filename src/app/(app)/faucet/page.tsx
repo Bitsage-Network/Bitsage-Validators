@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useAccount } from "@starknet-react/core";
+import { useState, useEffect, useCallback } from "react";
+import { useAccount, useSendTransaction } from "@starknet-react/core";
 import {
   Droplets,
   Wallet,
@@ -14,47 +14,176 @@ import {
   Coins,
   Twitter,
   Users,
-  WifiOff,
+  Zap,
+  Github,
+  Star,
+  MessageCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { LogoIcon } from "@/components/ui/Logo";
+import { AddSageButton } from "@/components/token/AddSageButton";
 import { EXTERNAL_LINKS } from "@/lib/contracts/addresses";
-import { useFaucetStatus, useFaucetConfig, useClaimFaucet, useApiHealth } from "@/lib/hooks/useApiData";
+import { useFaucetStatus, useFaucetConfig, useClaimFaucet, useFaucetClaimHistory } from "@/lib/hooks/useApiData";
+import {
+  buildClaimFaucetCall,
+  useCanClaim,
+  useTimeUntilClaim,
+  useClaimInfo,
+  useFaucetConfig as useOnChainFaucetConfig,
+  useFaucetStats as useOnChainFaucetStats,
+  SAGE_DECIMALS,
+} from "@/lib/contracts";
+import { useNetwork } from "@/lib/contexts/NetworkContext";
+
+// Social task types
+type SocialTaskType = "github_follow" | "github_star" | "twitter_follow" | "discord_join";
+
+interface SocialTask {
+  id: string;
+  title: string;
+  description: string;
+  reward: string;
+  icon: typeof Github;
+  link: string;
+  verifyType: SocialTaskType;
+  repo?: string;
+  oneTimeOnly: boolean;
+}
 
 // Social tasks for earning extra tokens
-const socialTasks = [
+const socialTasks: SocialTask[] = [
+  {
+    id: "github_follow",
+    title: "Follow on GitHub",
+    description: "Follow Bitsage-Network org",
+    reward: "10",
+    icon: Github,
+    link: "https://github.com/Bitsage-Network",
+    verifyType: "github_follow",
+    oneTimeOnly: true,
+  },
+  {
+    id: "github_star_stwo",
+    title: "Star stwo-gpu",
+    description: "Star the STWO GPU accelerator repo",
+    reward: "15",
+    icon: Star,
+    link: "https://github.com/Bitsage-Network/stwo-gpu",
+    verifyType: "github_star",
+    repo: "Bitsage-Network/stwo-gpu",
+    oneTimeOnly: true,
+  },
+  {
+    id: "github_star_rust",
+    title: "Star rust-node",
+    description: "Star the Rust coordinator node",
+    reward: "15",
+    icon: Star,
+    link: "https://github.com/Bitsage-Network/rust-node",
+    verifyType: "github_star",
+    repo: "Bitsage-Network/rust-node",
+    oneTimeOnly: true,
+  },
+  {
+    id: "github_star_sdk",
+    title: "Star bitsage-sdk",
+    description: "Star the BitSage SDK",
+    reward: "15",
+    icon: Star,
+    link: "https://github.com/Bitsage-Network/bitsage-sdk",
+    verifyType: "github_star",
+    repo: "Bitsage-Network/bitsage-sdk",
+    oneTimeOnly: true,
+  },
   {
     id: "twitter_follow",
-    title: "Follow on Twitter",
-    description: "Follow @BitSageNetwork",
+    title: "Follow on X",
+    description: "Follow @bitsagenetwork",
     reward: "10",
     icon: Twitter,
-    link: "https://twitter.com/BitSageNetwork",
+    link: "https://x.com/bitsagenetwork",
+    verifyType: "twitter_follow",
     oneTimeOnly: true,
   },
   {
     id: "discord_join",
     title: "Join Discord",
-    description: "Join our community",
+    description: "Join our community server",
     reward: "10",
-    icon: Users,
-    link: "https://discord.gg/bitsage",
+    icon: MessageCircle,
+    link: "https://discord.gg/3kyAZ2Hk",
+    verifyType: "discord_join",
     oneTimeOnly: true,
   },
 ];
 
+// Social connection status
+interface SocialConnections {
+  github: { connected: boolean; username?: string };
+  twitter: { connected: boolean; username?: string };
+  discord: { connected: boolean; username?: string };
+}
+
 export default function FaucetPage() {
   const { address } = useAccount();
+  const { network } = useNetwork();
   const [success, setSuccess] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
+  const [verifyingTask, setVerifyingTask] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
+  // Always use on-chain claiming - direct interaction with Starknet contract
+  const useOnChain = true;
+  const [socialConnections, setSocialConnections] = useState<SocialConnections>({
+    github: { connected: false },
+    twitter: { connected: false },
+    discord: { connected: false },
+  });
 
-  // API hooks
-  const { isOnline } = useApiHealth();
+  // API hooks (fallback data source)
   const { data: faucetStatus, isLoading: statusLoading, refetch: refetchStatus } = useFaucetStatus(address);
   const { data: faucetConfig } = useFaucetConfig();
   const claimMutation = useClaimFaucet();
+  const { data: claimHistory, isLoading: historyLoading } = useFaucetClaimHistory(address, 10);
+
+  // On-chain contract hooks (primary data source)
+  const { data: onChainCanClaim, refetch: refetchOnChain } = useCanClaim(address);
+  const { data: onChainTimeUntil } = useTimeUntilClaim(address);
+  const { data: onChainClaimInfo } = useClaimInfo(address);
+  const { data: onChainConfig } = useOnChainFaucetConfig();
+  const { data: onChainStats, refetch: refetchStats } = useOnChainFaucetStats();
+
+  // On-chain transaction hook
+  const { send: sendTransaction, isPending: txPending, data: txData, error: txError } = useSendTransaction({});
+
+  // Handle direct on-chain claim
+  const handleOnChainClaim = useCallback(async () => {
+    if (!address) return;
+    setSuccess(false);
+    setTxHash(null);
+
+    try {
+      const claimCall = buildClaimFaucetCall(network);
+      await sendTransaction([claimCall]);
+    } catch (err) {
+      console.error("On-chain claim failed:", err);
+    }
+  }, [address, sendTransaction, network]);
+
+  // Update txHash when transaction succeeds
+  useEffect(() => {
+    if (txData?.transaction_hash) {
+      setTxHash(txData.transaction_hash);
+      setSuccess(true);
+      // Refetch status and stats after claim
+      setTimeout(() => {
+        refetchStatus();
+        refetchOnChain();
+        refetchStats();
+      }, 3000);
+    }
+  }, [txData, refetchStatus, refetchOnChain, refetchStats]);
 
   // Load completed tasks from localStorage
   useEffect(() => {
@@ -65,6 +194,32 @@ export default function FaucetPage() {
       }
     }
   }, [address]);
+
+  // Fetch social connection status
+  useEffect(() => {
+    const fetchConnections = async () => {
+      try {
+        const response = await fetch('/api/social/verify');
+        if (response.ok) {
+          const data = await response.json();
+          setSocialConnections(data.connections);
+        }
+      } catch (error) {
+        console.error('Failed to fetch social connections:', error);
+      }
+    };
+
+    fetchConnections();
+
+    // Check for GitHub connection success from URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('github_connected') === 'true') {
+      // Refetch connections after OAuth redirect
+      fetchConnections();
+      // Clean URL
+      window.history.replaceState({}, '', '/faucet');
+    }
+  }, []);
 
   // Update countdown timer
   useEffect(() => {
@@ -112,13 +267,72 @@ export default function FaucetPage() {
     }
   };
 
-  const handleTaskComplete = (taskId: string) => {
-    if (completedTasks.includes(taskId)) return;
+  // Verify and complete a social task
+  const handleTaskVerify = async (task: SocialTask) => {
+    if (completedTasks.includes(task.id) || !address) return;
 
-    const newCompleted = [...completedTasks, taskId];
-    setCompletedTasks(newCompleted);
-    if (address) {
-      localStorage.setItem(`faucet_tasks_${address}`, JSON.stringify(newCompleted));
+    setVerifyingTask(task.id);
+    setTaskError(null);
+
+    try {
+      const response = await fetch('/api/social/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: task.id,
+          taskType: task.verifyType,
+          repo: task.repo,
+          wallet: address,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.requiresAuth && result.authUrl) {
+        // Redirect to OAuth
+        window.location.href = result.authUrl;
+        return;
+      }
+
+      if (result.verified) {
+        // Mark task as completed
+        const newCompleted = [...completedTasks, task.id];
+        setCompletedTasks(newCompleted);
+        localStorage.setItem(`faucet_tasks_${address}`, JSON.stringify(newCompleted));
+      } else {
+        setTaskError(result.message || 'Verification failed');
+      }
+    } catch (error) {
+      setTaskError('Failed to verify task. Please try again.');
+    } finally {
+      setVerifyingTask(null);
+    }
+  };
+
+  // Handle clicking task link (open in new tab, then verify)
+  const handleTaskClick = (task: SocialTask) => {
+    // Open the link in a new tab
+    window.open(task.link, '_blank');
+
+    // For GitHub tasks, check if connected first
+    if (task.verifyType === 'github_star' || task.verifyType === 'github_follow') {
+      if (!socialConnections.github.connected) {
+        // Prompt to connect GitHub after they've done the action
+        setTimeout(() => {
+          if (confirm('To verify your GitHub action, please connect your GitHub account. Connect now?')) {
+            window.location.href = `/api/auth/github?wallet=${encodeURIComponent(address || '')}`;
+          }
+        }, 1000);
+        return;
+      }
+    }
+  };
+
+  // Legacy handler for backwards compatibility
+  const handleTaskComplete = (taskId: string) => {
+    const task = socialTasks.find(t => t.id === taskId);
+    if (task) {
+      handleTaskVerify(task);
     }
   };
 
@@ -128,7 +342,104 @@ export default function FaucetPage() {
   const error = claimMutation.error?.message;
   const canClaim = faucetStatus?.can_claim && !isLoading;
   const cooldownActive = faucetStatus && !faucetStatus.can_claim;
-  const claimAmount = faucetStatus?.claim_amount_formatted || faucetConfig?.claim_amount_formatted || "20 SAGE";
+
+  // Get claim amount from on-chain config (primary) or fall back to API
+  const getOnChainClaimAmount = () => {
+    if (!onChainConfig) return null;
+    try {
+      // onChainConfig is a tuple: [claim_amount, cooldown_period, sage_token]
+      const configArray = onChainConfig as any;
+      const claimAmountObj = configArray[0] || configArray.claim_amount;
+      let claimValue: bigint;
+
+      if (claimAmountObj && typeof claimAmountObj === 'object' && 'low' in claimAmountObj) {
+        claimValue = BigInt(claimAmountObj.low) + (BigInt(claimAmountObj.high || 0) << 128n);
+      } else if (typeof claimAmountObj === 'bigint') {
+        claimValue = claimAmountObj;
+      } else if (typeof claimAmountObj === 'string' || typeof claimAmountObj === 'number') {
+        claimValue = BigInt(claimAmountObj);
+      } else {
+        return null;
+      }
+
+      // Format to SAGE with decimals
+      const divisor = BigInt(10 ** SAGE_DECIMALS);
+      const integerPart = Number(claimValue / divisor);
+      const decimalPart = Number((claimValue % divisor) / BigInt(10 ** (SAGE_DECIMALS - 2)));
+      return `${integerPart}.${decimalPart.toString().padStart(2, '0')} SAGE`;
+    } catch {
+      return null;
+    }
+  };
+
+  const claimAmount = getOnChainClaimAmount() || faucetStatus?.claim_amount_formatted || faucetConfig?.claim_amount_formatted || "20 SAGE";
+
+  // Format faucet balance from on-chain stats
+  const formatFaucetBalance = () => {
+    if (!onChainStats) return null;
+    try {
+      // onChainStats is a tuple: [total_distributed, unique_claimants, total_claims, balance]
+      // Balance is a u256 = { low, high }
+      const statsArray = onChainStats as any;
+      const balanceObj = statsArray[3] || statsArray.balance;
+      let balanceValue: bigint;
+
+      if (balanceObj && typeof balanceObj === 'object' && 'low' in balanceObj) {
+        balanceValue = BigInt(balanceObj.low) + (BigInt(balanceObj.high || 0) << 128n);
+      } else if (typeof balanceObj === 'bigint') {
+        balanceValue = balanceObj;
+      } else {
+        return null;
+      }
+
+      // Format to SAGE with decimals
+      const divisor = BigInt(10 ** SAGE_DECIMALS);
+      const integerPart = balanceValue / divisor;
+      return Number(integerPart).toLocaleString();
+    } catch {
+      return null;
+    }
+  };
+
+  // Format total distributed
+  const formatTotalDistributed = () => {
+    if (!onChainStats) return null;
+    try {
+      const statsArray = onChainStats as any;
+      const totalObj = statsArray[0] || statsArray.total_distributed;
+      let totalValue: bigint;
+
+      if (totalObj && typeof totalObj === 'object' && 'low' in totalObj) {
+        totalValue = BigInt(totalObj.low) + (BigInt(totalObj.high || 0) << 128n);
+      } else if (typeof totalObj === 'bigint') {
+        totalValue = totalObj;
+      } else {
+        return null;
+      }
+
+      const divisor = BigInt(10 ** SAGE_DECIMALS);
+      const integerPart = totalValue / divisor;
+      return Number(integerPart).toLocaleString();
+    } catch {
+      return null;
+    }
+  };
+
+  // Format unique claimants
+  const formatUniqueClaimants = () => {
+    if (!onChainStats) return null;
+    try {
+      const statsArray = onChainStats as any;
+      const claimantsValue = statsArray[1] || statsArray.unique_claimants;
+      return Number(claimantsValue).toLocaleString();
+    } catch {
+      return null;
+    }
+  };
+
+  const faucetBalance = formatFaucetBalance();
+  const totalDistributed = formatTotalDistributed();
+  const uniqueClaimants = formatUniqueClaimants();
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -148,24 +459,53 @@ export default function FaucetPage() {
         </p>
       </div>
 
-      {/* Connection Status */}
-      {!isOnline && (
+      {/* Faucet Stats Cards */}
+      <div className="grid grid-cols-3 gap-4">
         <motion.div
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30"
+          transition={{ delay: 0.1 }}
+          className="glass-card p-4 text-center"
         >
-          <div className="flex items-center gap-3">
-            <WifiOff className="w-5 h-5 text-orange-400" />
-            <div>
-              <p className="text-sm font-medium text-orange-400">API Unavailable</p>
-              <p className="text-sm text-gray-400">
-                Unable to connect to the faucet API. Please try again later.
-              </p>
-            </div>
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Droplets className="w-4 h-4 text-brand-400" />
+            <span className="text-sm text-gray-400">Faucet Balance</span>
           </div>
+          <p className="text-xl font-bold text-white">
+            {faucetBalance !== null ? `${faucetBalance} SAGE` : "—"}
+          </p>
         </motion.div>
-      )}
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="glass-card p-4 text-center"
+        >
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Coins className="w-4 h-4 text-emerald-400" />
+            <span className="text-sm text-gray-400">Total Distributed</span>
+          </div>
+          <p className="text-xl font-bold text-emerald-400">
+            {totalDistributed !== null ? `${totalDistributed} SAGE` : "—"}
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="glass-card p-4 text-center"
+        >
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-accent-cyan" />
+            <span className="text-sm text-gray-400">Unique Claimants</span>
+          </div>
+          <p className="text-xl font-bold text-white">
+            {uniqueClaimants !== null ? uniqueClaimants : "—"}
+          </p>
+        </motion.div>
+      </div>
 
       {/* Main Faucet Card */}
       <motion.div
@@ -182,8 +522,8 @@ export default function FaucetPage() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-white">SAGE Token Faucet</h2>
-                <p className="text-sm text-gray-400">
-                  {faucetConfig?.network || "Sepolia"} Testnet
+                <p className="text-sm text-gray-400" suppressHydrationWarning>
+                  {network === "devnet" ? "Local Devnet" : "Sepolia"} Testnet
                 </p>
               </div>
             </div>
@@ -239,6 +579,17 @@ export default function FaucetPage() {
                 </p>
               </div>
             )}
+
+            {/* Add SAGE to Wallet */}
+            <div className="p-4 rounded-xl bg-surface-elevated border border-surface-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Don't see SAGE in your wallet?</p>
+                  <p className="text-xs text-gray-500">Add the token to track your balance</p>
+                </div>
+                <AddSageButton variant="compact" />
+              </div>
+            </div>
           </div>
 
           {/* Cooldown Notice */}
@@ -273,32 +624,26 @@ export default function FaucetPage() {
 
           {/* Request Button */}
           <button
-            onClick={handleRequestTokens}
-            disabled={isLoading || !address || !canClaim || statusLoading || !isOnline}
+            onClick={handleOnChainClaim}
+            disabled={txPending || !address}
             className="btn-glow w-full py-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? (
+            {txPending ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Requesting Tokens...
-              </>
-            ) : statusLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Checking Status...
-              </>
-            ) : cooldownActive ? (
-              <>
-                <Clock className="w-5 h-5" />
-                Cooldown Active
+                Waiting for Wallet...
               </>
             ) : (
               <>
-                <Gift className="w-5 h-5" />
-                Request {claimAmount}
+                <Zap className="w-5 h-5" />
+                Claim {claimAmount}
               </>
             )}
           </button>
+
+          <p className="text-xs text-center text-gray-500">
+            Claims directly from the Starknet faucet contract. Small gas fee required.
+          </p>
 
           {/* Success Message */}
           {success && txHash && (
@@ -353,20 +698,47 @@ export default function FaucetPage() {
         transition={{ delay: 0.2 }}
         className="glass-card p-6"
       >
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Gift className="w-5 h-5 text-brand-400" />
-          Earn More Tokens
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Gift className="w-5 h-5 text-brand-400" />
+            Earn More Tokens
+          </h3>
+          {/* Connection Status */}
+          <div className="flex items-center gap-2">
+            {socialConnections.github.connected && (
+              <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full flex items-center gap-1">
+                <Github className="w-3 h-3" />
+                {socialConnections.github.username}
+              </span>
+            )}
+          </div>
+        </div>
         <p className="text-sm text-gray-400 mb-4">
-          Complete social tasks to earn more SAGE tokens for testing
+          Complete social tasks to earn bonus SAGE tokens. Connect your accounts to verify.
         </p>
+
+        {/* Task Error */}
+        {taskError && (
+          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-400">
+            {taskError}
+            <button onClick={() => setTaskError(null)} className="ml-2 underline">Dismiss</button>
+          </div>
+        )}
+
         <div className="space-y-3">
           {socialTasks.map((task) => {
             const isCompleted = completedTasks.includes(task.id);
+            const isVerifying = verifyingTask === task.id;
+            const needsGitHub = (task.verifyType === 'github_star' || task.verifyType === 'github_follow') && !socialConnections.github.connected;
+            const needsTwitter = task.verifyType === 'twitter_follow' && !socialConnections.twitter.connected;
+            const needsDiscord = task.verifyType === 'discord_join' && !socialConnections.discord.connected;
+
             return (
               <div
                 key={task.id}
-                className="flex items-center justify-between p-4 rounded-xl bg-surface-elevated border border-surface-border"
+                className={`flex items-center justify-between p-4 rounded-xl bg-surface-elevated border ${
+                  isCompleted ? 'border-emerald-500/30' : 'border-surface-border'
+                }`}
               >
                 <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-lg ${isCompleted ? "bg-emerald-500/20" : "bg-surface-card"}`}>
@@ -381,23 +753,66 @@ export default function FaucetPage() {
                     <p className="text-sm text-gray-500">{task.description}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-emerald-400">+{task.reward} SAGE</span>
-                  {task.oneTimeOnly && (
-                    <span className="text-xs text-gray-500">(one-time)</span>
-                  )}
+
                   {isCompleted ? (
-                    <span className="badge badge-success">Done</span>
+                    <span className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium">
+                      Verified
+                    </span>
+                  ) : isVerifying ? (
+                    <span className="px-3 py-1.5 rounded-lg bg-brand-500/20 text-brand-400 text-sm font-medium flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Verifying
+                    </span>
+                  ) : needsGitHub ? (
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={task.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary text-sm py-1.5 px-3"
+                      >
+                        {task.verifyType === 'github_star' ? 'Star' : 'Follow'}
+                      </a>
+                      <a
+                        href={`/api/auth/github?wallet=${encodeURIComponent(address || '')}`}
+                        className="btn-glow text-sm py-1.5 px-3 flex items-center gap-1"
+                      >
+                        <Github className="w-4 h-4" />
+                        Connect
+                      </a>
+                    </div>
+                  ) : needsTwitter || needsDiscord ? (
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={task.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary text-sm py-1.5 px-3"
+                      >
+                        {task.verifyType === 'twitter_follow' ? 'Follow' : 'Join'}
+                      </a>
+                      <span className="text-xs text-gray-500">Verify coming soon</span>
+                    </div>
                   ) : (
-                    <a
-                      href={task.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => handleTaskComplete(task.id)}
-                      className="btn-secondary text-sm py-2 px-3"
-                    >
-                      Complete
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={task.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary text-sm py-1.5 px-3"
+                      >
+                        {task.verifyType === 'github_star' ? 'Star' : task.verifyType === 'github_follow' ? 'Follow' : 'Go'}
+                      </a>
+                      <button
+                        onClick={() => handleTaskVerify(task)}
+                        disabled={isVerifying}
+                        className="btn-glow text-sm py-1.5 px-3"
+                      >
+                        Verify
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -405,6 +820,55 @@ export default function FaucetPage() {
           })}
         </div>
       </motion.div>
+
+      {/* Claim History */}
+      {claimHistory && claimHistory.claims.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="glass-card p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-brand-400" />
+              Claim History
+            </h3>
+            <span className="text-sm text-gray-400">
+              Total: {claimHistory.total_claimed_formatted}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {claimHistory.claims.map((claim) => (
+              <div
+                key={claim.id}
+                className="flex items-center justify-between p-3 rounded-lg bg-surface-elevated border border-surface-border"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/20">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">{claim.amount_formatted}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(claim.claimed_at * 1000).toLocaleDateString()} at{" "}
+                      {new Date(claim.claimed_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={`https://sepolia.starkscan.co/tx/${claim.tx_hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-brand-400"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

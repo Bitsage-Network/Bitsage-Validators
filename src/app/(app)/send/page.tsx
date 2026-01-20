@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Send,
   ArrowRight,
@@ -17,62 +17,68 @@ import {
   Zap,
   Wallet,
   RefreshCw,
+  ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { PrivacyBalanceCard, PrivacyModeToggle } from "@/components/privacy/PrivacyToggle";
-import { useObelyskWallet } from "@/lib/obelysk/ObelyskWalletContext";
+import { ProofDetails } from "@/components/privacy/ProofDetails";
+import { useSafeObelyskWallet } from "@/lib/obelysk/ObelyskWalletContext";
 import Link from "next/link";
-
-// Mock recent transfers
-const recentTransfers = [
-  {
-    id: "tx_001",
-    to: "0x04f3...8a2c",
-    amount: "250.00",
-    status: "completed",
-    time: "10 min ago",
-    private: true,
-    txHash: null, // Private = no visible hash
-  },
-  {
-    id: "tx_002",
-    to: "0x07b2...1e4f",
-    amount: "1,000.00",
-    status: "completed",
-    time: "2h ago",
-    private: false,
-    txHash: "0x07a8...3f2b",
-  },
-  {
-    id: "tx_003",
-    to: "0x03c1...9d8e",
-    amount: "75.50",
-    status: "pending",
-    time: "Just now",
-    private: true,
-    txHash: null,
-  },
-];
-
-// Mock contacts
-const savedContacts = [
-  { name: "Alice", address: "0x04f3...8a2c" },
-  { name: "Bob", address: "0x07b2...1e4f" },
-  { name: "Treasury", address: "0x03c1...9d8e" },
-];
+import { SUPPORTED_ASSETS, type Asset, DEFAULT_ASSET } from "@/lib/contracts/assets";
+import { useAccount } from "@starknet-react/core";
+import { useSendPageData } from "@/lib/hooks/useApiData";
+import { usePrivacyPool } from "@/lib/hooks/usePrivacyPool";
+import { usePrivacyKeys } from "@/lib/hooks/usePrivacyKeys";
+import { PRIVACY_DENOMINATIONS, type PrivacyDenomination } from "@/lib/crypto";
+import { useToast } from "@/lib/providers/ToastProvider";
 
 export default function SendPage() {
-  const { 
-    balance, 
-    isPrivateRevealed, 
-    sendPrivate, 
-    sendPublic, 
-    provingState, 
-    provingTime,
-    resetProvingState 
-  } = useObelyskWallet();
-  
+  const { address } = useAccount();
+  const obelyskWallet = useSafeObelyskWallet();
+  const balance = obelyskWallet?.balance ?? { public: "0", private: "0", pending: "0" };
+  const isPrivateRevealed = obelyskWallet?.isPrivateRevealed ?? false;
+  const revealPrivateBalance = obelyskWallet?.revealPrivateBalance;
+  const hidePrivateBalance = obelyskWallet?.hidePrivateBalance;
+  const sendPrivate = obelyskWallet?.sendPrivate ?? (async () => {});
+  const sendPublic = obelyskWallet?.sendPublic ?? (async () => {});
+  const provingState = obelyskWallet?.provingState ?? "idle";
+  const provingTime = obelyskWallet?.provingTime ?? null;
+  const resetProvingState = obelyskWallet?.resetProvingState ?? (() => {});
+  const decryptionResult = obelyskWallet?.decryptionResult ?? null;
+  const staleNotesCount = obelyskWallet?.staleNotesCount ?? 0;
+  const localNotesBalance = obelyskWallet?.localNotesBalance ?? 0;
+  const clearStaleNotes = obelyskWallet?.clearStaleNotes;
+
+  // Toast notifications
+  const toast = useToast();
+
+  // Privacy pool for wrap/unwrap and private sends
+  const {
+    deposit,
+    withdraw,
+    depositState,
+    withdrawState,
+    poolStats,
+    isKeysDerived,
+    derivePrivacyKeys,
+  } = usePrivacyPool();
+
+  // Privacy keys for note management
+  const { getSpendableNotes } = usePrivacyKeys();
+
+  // Fetch real data from API
+  const {
+    recentTransfers,
+    isLoadingTransfers,
+    contacts: savedContacts,
+    isLoadingContacts,
+    addContact,
+    assetBalances: apiAssetBalances,
+    isLoadingBalances,
+  } = useSendPageData(address);
+
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [privacyMode, setPrivacyMode] = useState(false);
@@ -81,44 +87,252 @@ export default function SendPage() {
   const [isSending, setIsSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<Asset>(DEFAULT_ASSET);
+  const [showAssetDropdown, setShowAssetDropdown] = useState(false);
+  const [privateSendTxHash, setPrivateSendTxHash] = useState<string | null>(null);
+  const [privateSendNote, setPrivateSendNote] = useState<{
+    commitment: string;
+    nullifier: string;
+    amount: number;
+  } | null>(null);
 
-  const handleWrap = async (amount: string) => {
-    console.log("Wrapping", amount, "SAGE to private");
-    await new Promise((r) => setTimeout(r, 2000));
-  };
+  // Build asset balances from API data, with SAGE from Obelysk wallet as fallback
+  const assetBalances = useMemo(() => {
+    const balances: Record<string, { public: string; private: string }> = {
+      SAGE: { public: balance.public, private: balance.private },
+    };
 
-  const handleUnwrap = async (amount: string) => {
-    console.log("Unwrapping", amount, "SAGE to public");
-    await new Promise((r) => setTimeout(r, 2000));
-  };
+    // Merge API balances
+    for (const assetBalance of apiAssetBalances) {
+      balances[assetBalance.symbol] = {
+        public: assetBalance.public_balance,
+        private: assetBalance.private_balance,
+      };
+    }
+
+    // Ensure SAGE uses Obelysk wallet if not in API response
+    if (!balances.SAGE || balances.SAGE.public === "0") {
+      balances.SAGE = { public: balance.public, private: balance.private };
+    }
+
+    return balances;
+  }, [apiAssetBalances, balance.public, balance.private]);
+
+  // Convert amount to fixed denominations using greedy algorithm
+  const amountToDenominations = useCallback((amountStr: string): PrivacyDenomination[] => {
+    const numAmount = parseFloat(amountStr) || 0;
+    const denominations: PrivacyDenomination[] = [];
+    let remaining = numAmount;
+
+    // Sort denominations from largest to smallest
+    const sortedDenoms = [...PRIVACY_DENOMINATIONS].sort((a, b) => b - a);
+
+    for (const denom of sortedDenoms) {
+      while (remaining >= denom) {
+        denominations.push(denom);
+        remaining -= denom;
+        // Handle floating point precision
+        remaining = Math.round(remaining * 1000) / 1000;
+      }
+    }
+
+    return denominations;
+  }, []);
+
+  // Wrap: Deposit public balance into privacy pool
+  const handleWrap = useCallback(async (amountStr: string) => {
+    const denominations = amountToDenominations(amountStr);
+
+    if (denominations.length === 0) {
+      toast.error("Invalid Amount", "Amount must be at least 0.1 SAGE");
+      return;
+    }
+
+    try {
+      // Ensure privacy keys are derived before depositing
+      if (!isKeysDerived) {
+        toast.info("Initializing Privacy", "Please sign the message in your wallet to derive your privacy keys...");
+        await derivePrivacyKeys();
+        toast.success("Privacy Ready", "Privacy keys derived successfully");
+      }
+
+      // Deposit each denomination
+      for (let i = 0; i < denominations.length; i++) {
+        const denom = denominations[i];
+        toast.info(
+          "Depositing...",
+          `Processing ${i + 1}/${denominations.length}: ${denom} SAGE`
+        );
+        await deposit(denom);
+      }
+
+      toast.success(
+        "Wrapped Successfully",
+        `${amountStr} SAGE wrapped into ${denominations.length} privacy note(s)`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Wrap failed";
+      toast.error("Wrap Failed", message);
+      throw error;
+    }
+  }, [amountToDenominations, deposit, toast, isKeysDerived, derivePrivacyKeys]);
+
+  // Unwrap: Withdraw from privacy pool to public balance
+  const handleUnwrap = useCallback(async (amountStr: string) => {
+    const targetAmount = parseFloat(amountStr) || 0;
+
+    if (targetAmount <= 0) {
+      toast.error("Invalid Amount", "Please enter a valid amount");
+      return;
+    }
+
+    try {
+      // Ensure privacy keys are derived before withdrawing
+      if (!isKeysDerived) {
+        toast.info("Initializing Privacy", "Please sign the message in your wallet to derive your privacy keys...");
+        await derivePrivacyKeys();
+        toast.success("Privacy Ready", "Privacy keys derived successfully");
+      }
+
+      // Get available notes
+      const notes = await getSpendableNotes();
+
+      if (!notes || notes.length === 0) {
+        toast.error("No Notes", "No privacy notes available to withdraw");
+        return;
+      }
+
+      // Select notes to withdraw (greedy: largest first)
+      const sortedNotes = [...notes].sort((a, b) => b.denomination - a.denomination);
+      const notesToWithdraw: typeof notes = [];
+      let accumulated = 0;
+
+      for (const note of sortedNotes) {
+        if (accumulated >= targetAmount) break;
+        notesToWithdraw.push(note);
+        accumulated += note.denomination;
+      }
+
+      if (accumulated < targetAmount) {
+        toast.error(
+          "Insufficient Notes",
+          `Can only withdraw ${accumulated} SAGE from available notes`
+        );
+        return;
+      }
+
+      // Withdraw each note
+      for (let i = 0; i < notesToWithdraw.length; i++) {
+        const note = notesToWithdraw[i];
+        toast.info(
+          "Withdrawing...",
+          `Processing ${i + 1}/${notesToWithdraw.length}: ${note.denomination} SAGE`
+        );
+        await withdraw(note);
+      }
+
+      toast.success(
+        "Unwrapped Successfully",
+        `${accumulated} SAGE withdrawn from ${notesToWithdraw.length} note(s)`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unwrap failed";
+      toast.error("Unwrap Failed", message);
+      throw error;
+    }
+  }, [getSpendableNotes, withdraw, toast, isKeysDerived, derivePrivacyKeys]);
 
   const handleSend = async () => {
     setIsSending(true);
+    setPrivateSendTxHash(null);
+    setPrivateSendNote(null);
+
     try {
       if (privacyMode || usePrivateBalance) {
-        await sendPrivate(recipient, amount);
+        // ============================================
+        // PRIVATE SEND - Uses real ZK proofs on-chain
+        // ============================================
+        console.log("🔐 [Private Send] Starting with amount:", amount);
+
+        // 1. Ensure privacy keys are derived
+        if (!isKeysDerived) {
+          console.log("Deriving privacy keys for private send...");
+          await derivePrivacyKeys();
+        }
+
+        // 2. Find a note that covers the amount
+        const amountNum = parseFloat(amount);
+        const notes = poolStats.yourNotes.filter(n => !n.spent && n.denomination >= amountNum);
+
+        if (notes.length === 0) {
+          throw new Error(
+            `No suitable note found for amount ${amount} SAGE. ` +
+            `Available notes: ${poolStats.yourNotes.filter(n => !n.spent).map(n => n.denomination).join(", ")} SAGE`
+          );
+        }
+
+        // Use the smallest note that covers the amount
+        const note = notes.sort((a, b) => a.denomination - b.denomination)[0];
+
+        console.log("📝 [Private Send] Using note:", {
+          commitment: note.commitment.slice(0, 10) + "...",
+          denomination: note.denomination,
+          leafIndex: note.leafIndex,
+        });
+
+        // 3. Execute withdrawal with recipient address
+        // This generates real ZK proofs:
+        // - Derives nullifier = H(nullifier_secret, leaf_index)
+        // - Fetches Merkle proof from backend
+        // - Submits on-chain withdrawal to PrivacyPools contract
+        const txHash = await withdraw(note, recipient);
+
+        console.log("✅ [Private Send] Complete! TxHash:", txHash);
+
+        // Store proof data for display
+        setPrivateSendTxHash(txHash);
+        setPrivateSendNote({
+          commitment: note.commitment,
+          nullifier: note.nullifierSecret, // Will be hashed with leafIndex
+          amount: note.denomination,
+        });
+
+        toast.success("Private transfer complete!");
+        setSendSuccess(true);
+
+        setTimeout(() => {
+          setShowConfirm(false);
+          setSendSuccess(false);
+          setAmount("");
+          setRecipient("");
+          resetProvingState();
+        }, 3000);
+
       } else {
+        // Public send
         await sendPublic(recipient, amount);
+        setSendSuccess(true);
+        setTimeout(() => {
+          setShowConfirm(false);
+          setSendSuccess(false);
+          setAmount("");
+          setRecipient("");
+          resetProvingState();
+        }, 2000);
       }
-      setSendSuccess(true);
-      setTimeout(() => {
-        setShowConfirm(false);
-        setSendSuccess(false);
-        setAmount("");
-        setRecipient("");
-        resetProvingState();
-      }, 2000);
     } catch (error) {
       console.error("Send failed:", error);
+      toast.error(error instanceof Error ? error.message : "Send failed");
     } finally {
       setIsSending(false);
     }
   };
 
-  // Use balances from Obelysk wallet
-  const availableBalance = usePrivateBalance 
-    ? balance.private 
-    : balance.public;
+  // Use balances from Obelysk wallet based on selected asset
+  const currentAssetBalance = assetBalances[selectedAsset.id] || { public: "0.00", private: "0.00" };
+  const availableBalance = usePrivateBalance
+    ? currentAssetBalance.private
+    : currentAssetBalance.public;
 
   const isValidAmount = amount && parseFloat(amount) > 0;
   const isValidRecipient = recipient.length > 10;
@@ -127,7 +341,7 @@ export default function SendPage() {
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-white">Send SAGE</h1>
+        <h1 className="text-2xl font-bold text-white">Send {selectedAsset.symbol}</h1>
         <p className="text-gray-400 mt-1">
           Transfer tokens publicly or privately
         </p>
@@ -177,9 +391,99 @@ export default function SendPage() {
       <PrivacyBalanceCard
         publicBalance={balance.public}
         privateBalance={balance.private}
+        isRevealed={isPrivateRevealed}
+        onReveal={revealPrivateBalance}
+        onHide={hidePrivateBalance}
         onWrap={handleWrap}
         onUnwrap={handleUnwrap}
+        decryptionResult={decryptionResult}
+        staleNotesCount={staleNotesCount}
+        localNotesBalance={localNotesBalance}
+        onClearStaleNotes={clearStaleNotes}
       />
+
+      {/* ZK Proof Details - Show after successful deposit */}
+      {depositState.phase === "confirmed" && depositState.proofData && depositState.txHash && depositState.provingTimeMs && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <ProofDetails
+            commitment={depositState.proofData.commitment}
+            amountCommitment={depositState.proofData.amountCommitment}
+            provingTimeMs={depositState.provingTimeMs}
+            leafIndex={depositState.proofData.leafIndex}
+            txHash={depositState.txHash}
+            amount={depositState.proofData.amount}
+            symbol="SAGE"
+          />
+        </motion.div>
+      )}
+
+      {/* ZK Proof Details - Show after successful private send (withdraw) */}
+      {withdrawState.txHash && privateSendNote && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-5"
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-white flex items-center gap-2">
+                Private Transfer Complete
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
+                  ZK Verified
+                </span>
+              </h3>
+              <p className="text-sm text-gray-400">
+                {privateSendNote.amount} SAGE sent with zero-knowledge proof
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {/* Nullifier */}
+            <div className="p-3 rounded-lg bg-surface-elevated/50">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500">Nullifier (prevents double-spend)</span>
+              </div>
+              <code className="text-brand-400 font-mono text-sm break-all">
+                {privateSendNote.nullifier.slice(0, 20)}...{privateSendNote.nullifier.slice(-16)}
+              </code>
+            </div>
+
+            {/* Commitment */}
+            <div className="p-3 rounded-lg bg-surface-elevated/50">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500">Note Commitment (Pedersen)</span>
+              </div>
+              <code className="text-purple-400 font-mono text-sm break-all">
+                {privateSendNote.commitment.slice(0, 20)}...{privateSendNote.commitment.slice(-16)}
+              </code>
+            </div>
+
+            {/* Transaction Link */}
+            <div className="flex items-center justify-between pt-2 border-t border-surface-border">
+              <span className="text-sm text-gray-400 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                On-chain withdrawal verified
+              </span>
+              <a
+                href={`https://sepolia.starkscan.co/tx/${withdrawState.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                View on Starkscan
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Send Form */}
       <motion.div
@@ -224,7 +528,11 @@ export default function SendPage() {
             </div>
             <div className="flex items-center gap-3">
               {usePrivateBalance ? (
-                <span className="text-brand-400 font-mono">•••••</span>
+                isPrivateRevealed ? (
+                  <span className="text-brand-400 font-medium">{balance.private}</span>
+                ) : (
+                  <span className="text-brand-400 font-mono">•••••</span>
+                )
               ) : (
                 <span className="text-white font-medium">{balance.public}</span>
               )}
@@ -260,7 +568,7 @@ export default function SendPage() {
               
               {/* Contacts Dropdown */}
               <AnimatePresence>
-                {showContacts && savedContacts.length > 0 && (
+                {showContacts && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -270,24 +578,102 @@ export default function SendPage() {
                     <p className="text-xs text-gray-500 px-4 py-2 border-b border-surface-border">
                       Saved Contacts
                     </p>
-                    {savedContacts.map((contact) => (
-                      <button
-                        key={contact.address}
-                        onClick={() => {
-                          setRecipient(contact.address);
-                          setShowContacts(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-elevated transition-colors"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-brand-600/20 flex items-center justify-center">
-                          <User className="w-4 h-4 text-brand-400" />
-                        </div>
-                        <div className="text-left">
-                          <p className="text-sm text-white">{contact.name}</p>
-                          <p className="text-xs text-gray-500 font-mono">{contact.address}</p>
-                        </div>
-                      </button>
-                    ))}
+                    {isLoadingContacts ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-4 h-4 text-brand-400 animate-spin" />
+                      </div>
+                    ) : savedContacts.length === 0 ? (
+                      <div className="px-4 py-3 text-center">
+                        <p className="text-xs text-gray-500">No saved contacts</p>
+                      </div>
+                    ) : (
+                      savedContacts.map((contact) => (
+                        <button
+                          key={contact.id}
+                          onClick={() => {
+                            setRecipient(contact.address);
+                            setShowContacts(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-elevated transition-colors"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-brand-600/20 flex items-center justify-center">
+                            <User className="w-4 h-4 text-brand-400" />
+                          </div>
+                          <div className="text-left">
+                            <p className="text-sm text-white">{contact.name}</p>
+                            <p className="text-xs text-gray-500 font-mono">{contact.address}</p>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Asset Selector */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Asset</label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowAssetDropdown(!showAssetDropdown)}
+                className="w-full flex items-center justify-between p-4 rounded-xl bg-surface-elevated border border-surface-border hover:border-brand-500/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{selectedAsset.icon}</span>
+                  <div className="text-left">
+                    <p className="font-medium text-white">{selectedAsset.symbol}</p>
+                    <p className="text-xs text-gray-400">{selectedAsset.name}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-400">
+                    Balance: {isLoadingBalances ? (
+                      <Loader2 className="w-3 h-3 inline animate-spin" />
+                    ) : availableBalance}
+                  </span>
+                  <ChevronDown className={cn(
+                    "w-5 h-5 text-gray-400 transition-transform",
+                    showAssetDropdown && "rotate-180"
+                  )} />
+                </div>
+              </button>
+              <AnimatePresence>
+                {showAssetDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-surface-card border border-surface-border rounded-xl shadow-xl z-20 overflow-hidden max-h-64 overflow-y-auto"
+                  >
+                    {SUPPORTED_ASSETS.map((asset) => {
+                      const assetBal = assetBalances[asset.id] || { public: "0.00", private: "0.00" };
+                      const displayBalance = usePrivateBalance ? assetBal.private : assetBal.public;
+                      return (
+                        <button
+                          key={asset.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAsset(asset);
+                            setShowAssetDropdown(false);
+                            setAmount(""); // Clear amount when switching assets
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-3 p-4 hover:bg-surface-elevated transition-colors",
+                            selectedAsset.id === asset.id && "bg-brand-500/10"
+                          )}
+                        >
+                          <span className="text-2xl">{asset.icon}</span>
+                          <div className="flex-1 text-left">
+                            <p className="font-medium text-white">{asset.symbol}</p>
+                            <p className="text-xs text-gray-400">{asset.name}</p>
+                          </div>
+                          <span className="text-sm text-gray-400">{displayBalance}</span>
+                        </button>
+                      );
+                    })}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -303,7 +689,7 @@ export default function SendPage() {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="input-field pr-24 text-xl"
+                className="input-field pr-28 text-xl"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <button
@@ -312,7 +698,7 @@ export default function SendPage() {
                 >
                   MAX
                 </button>
-                <span className="text-gray-400">SAGE</span>
+                <span className="text-gray-400">{selectedAsset.symbol}</span>
               </div>
             </div>
           </div>
@@ -327,17 +713,17 @@ export default function SendPage() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-400">You send</span>
               {privacyMode ? (
-                <span className="text-brand-400 font-mono tracking-wider">••••••• SAGE</span>
+                <span className="text-brand-400 font-mono tracking-wider">••••••• {selectedAsset.symbol}</span>
               ) : (
-                <span className="text-white">{amount || "0.00"} SAGE</span>
+                <span className="text-white">{amount || "0.00"} {selectedAsset.symbol}</span>
               )}
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-400">Recipient sees</span>
               {privacyMode ? (
-                <span className="text-brand-400 font-mono tracking-wider">••••••• SAGE</span>
+                <span className="text-brand-400 font-mono tracking-wider">••••••• {selectedAsset.symbol}</span>
               ) : (
-                <span className="text-white">{amount || "0.00"} SAGE</span>
+                <span className="text-white">{amount || "0.00"} {selectedAsset.symbol}</span>
               )}
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -394,7 +780,7 @@ export default function SendPage() {
             ) : (
               <>
                 <Send className="w-5 h-5" />
-                Send SAGE
+                Send {selectedAsset.symbol}
               </>
             )}
           </button>
@@ -410,59 +796,79 @@ export default function SendPage() {
       >
         <div className="p-4 border-b border-surface-border flex items-center justify-between">
           <h3 className="font-medium text-white">Recent Transfers</h3>
-          <span className="text-xs text-gray-500">{recentTransfers.length} transactions</span>
+          <span className="text-xs text-gray-500">
+            {isLoadingTransfers ? "Loading..." : `${recentTransfers.length} transactions`}
+          </span>
         </div>
         <div className="divide-y divide-surface-border">
-          {recentTransfers.map((tx) => (
-            <div key={tx.id} className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "p-2 rounded-lg",
-                  tx.status === "completed" 
-                    ? "bg-emerald-500/20" 
-                    : "bg-orange-500/20"
-                )}>
-                  {tx.status === "completed" ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <Clock className="w-4 h-4 text-orange-400" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-white font-mono text-sm">{tx.to}</span>
-                    {tx.private && (
-                      <span className="text-brand-400">
-                        <EyeOff className="w-3 h-3" />
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-gray-500">{tx.time}</span>
-                    {tx.txHash && !tx.private && (
-                      <a 
-                        href="#" 
-                        className="text-xs text-brand-400 hover:underline flex items-center gap-1"
-                      >
-                        {tx.txHash} <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    )}
-                    {tx.private && (
-                      <span className="text-xs text-brand-400/60 font-mono">encrypted</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                {tx.private ? (
-                  <span className="text-brand-400 font-mono tracking-wider">•••••</span>
-                ) : (
-                  <span className="text-white font-medium">{tx.amount}</span>
-                )}
-                <p className="text-xs text-gray-500">SAGE</p>
-              </div>
+          {isLoadingTransfers ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 text-brand-400 animate-spin" />
             </div>
-          ))}
+          ) : recentTransfers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+              <Send className="w-8 h-8 mb-2 opacity-50" />
+              <p className="text-sm">No recent transfers</p>
+              <p className="text-xs text-gray-500 mt-1">Your transfers will appear here</p>
+            </div>
+          ) : (
+            recentTransfers.map((tx) => (
+              <div key={tx.id} className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "p-2 rounded-lg",
+                    tx.status === "completed"
+                      ? "bg-emerald-500/20"
+                      : tx.status === "failed"
+                        ? "bg-red-500/20"
+                        : "bg-orange-500/20"
+                  )}>
+                    {tx.status === "completed" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    ) : tx.status === "failed" ? (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    ) : (
+                      <Clock className="w-4 h-4 text-orange-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-mono text-sm">{tx.to}</span>
+                      {tx.is_private && (
+                        <span className="text-brand-400">
+                          <EyeOff className="w-3 h-3" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-500">{tx.time}</span>
+                      {tx.tx_hash && !tx.is_private && (
+                        <a
+                          href={`https://sepolia.starkscan.co/tx/${tx.tx_hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-brand-400 hover:underline flex items-center gap-1"
+                        >
+                          {tx.tx_hash.slice(0, 8)}...{tx.tx_hash.slice(-6)} <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                      {tx.is_private && (
+                        <span className="text-xs text-brand-400/60 font-mono">encrypted</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {tx.is_private ? (
+                    <span className="text-brand-400 font-mono tracking-wider">•••••</span>
+                  ) : (
+                    <span className="text-white font-medium">{tx.amount}</span>
+                  )}
+                  <p className="text-xs text-gray-500">{tx.token_symbol || "SAGE"}</p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </motion.div>
 
