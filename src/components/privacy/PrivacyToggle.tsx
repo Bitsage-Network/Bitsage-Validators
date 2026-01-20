@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Eye,
@@ -16,8 +16,12 @@ import {
   KeyRound,
   CheckCircle,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ElGamalRevealResult } from "@/lib/obelysk/ObelyskWalletContext";
+import { ElGamalDecryptionDetails } from "./ElGamalDecryptionDetails";
+import { ElGamalRevealModal } from "./ElGamalRevealModal";
 
 // ============================================================================
 // SIGNATURE-BASED REVEAL
@@ -301,8 +305,19 @@ interface PrivacyBalanceCardProps {
   publicBalance: string;
   privateBalance: string;
   symbol?: string;
+  isRevealed?: boolean;  // External reveal state from context
+  onReveal?: () => Promise<{
+    totalBalance: bigint;
+    decryptedNotes: import("@/lib/hooks/usePrivacyKeys").DecryptedNote[];
+    publicKey: import("@/lib/crypto").ECPoint;
+  }>;  // Callback to reveal with full result
+  onHide?: () => void;  // Callback to hide
   onWrap?: (amount: string) => Promise<void>;
   onUnwrap?: (amount: string) => Promise<void>;
+  decryptionResult?: ElGamalRevealResult | null;  // ElGamal decryption proof details
+  staleNotesCount?: number;  // Notes not found on current contract
+  localNotesBalance?: number;  // Balance from local notes
+  onClearStaleNotes?: () => Promise<void>;  // Clear stale notes
   className?: string;
 }
 
@@ -310,44 +325,50 @@ export function PrivacyBalanceCard({
   publicBalance,
   privateBalance,
   symbol = "SAGE",
+  isRevealed = false,
+  onReveal,
+  onHide,
   onWrap,
   onUnwrap,
+  decryptionResult,
+  staleNotesCount = 0,
+  localNotesBalance = 0,
+  onClearStaleNotes,
   className,
 }: PrivacyBalanceCardProps) {
   const [showWrapModal, setShowWrapModal] = useState(false);
   const [wrapDirection, setWrapDirection] = useState<"wrap" | "unwrap">("wrap");
   const [amount, setAmount] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [privateRevealState, setPrivateRevealState] = useState<RevealState>("hidden");
-  const [showSignPrompt, setShowSignPrompt] = useState(false);
+  const [privateRevealState, setPrivateRevealState] = useState<RevealState>(isRevealed ? "revealed" : "hidden");
+  const [showRevealModal, setShowRevealModal] = useState(false);  // New multi-step modal
+  const [showDecryptionProof, setShowDecryptionProof] = useState(false);
+  const [isClearingStale, setIsClearingStale] = useState(false);
+
+  // Sync local state with external isRevealed prop
+  useEffect(() => {
+    setPrivateRevealState(isRevealed ? "revealed" : "hidden");
+  }, [isRevealed]);
 
   const handleRevealPrivate = useCallback(async () => {
     if (privateRevealState === "revealed") {
       setPrivateRevealState("hidden");
+      onHide?.();
       return;
     }
-    setShowSignPrompt(true);
-  }, [privateRevealState]);
+    // Open the multi-step reveal modal
+    setShowRevealModal(true);
+  }, [privateRevealState, onHide]);
 
-  const handleSignAndRevealPrivate = useCallback(async () => {
-    setPrivateRevealState("signing");
-    setShowSignPrompt(false);
-    
-    try {
-      // Simulate wallet signature request
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      setPrivateRevealState("decrypting");
-      // Simulate ElGamal decryption
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      setPrivateRevealState("revealed");
-    } catch (error) {
-      console.error("Failed to sign:", error);
-      setPrivateRevealState("error");
-      setTimeout(() => setPrivateRevealState("hidden"), 2000);
+  // Wrapper for onReveal that returns the result
+  const handleRevealWithResult = useCallback(async () => {
+    if (!onReveal) {
+      throw new Error("onReveal callback not provided");
     }
-  }, []);
+    const result = await onReveal();
+    setPrivateRevealState("revealed");
+    return result;
+  }, [onReveal]);
 
   const handleAction = async () => {
     if (!amount || parseFloat(amount) <= 0) return;
@@ -394,6 +415,47 @@ export function PrivacyBalanceCard({
             </div>
           </div>
         </div>
+
+        {/* Stale notes warning - notes from old contract */}
+        {staleNotesCount > 0 && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-300 font-medium">
+                  {staleNotesCount} stale note{staleNotesCount > 1 ? "s" : ""} detected
+                </p>
+                <p className="text-xs text-amber-400/70 mt-1">
+                  Found {localNotesBalance.toFixed(2)} {symbol} in local storage from a previous contract.
+                  These notes are no longer valid on-chain.
+                </p>
+                {onClearStaleNotes && (
+                  <button
+                    onClick={async () => {
+                      setIsClearingStale(true);
+                      try {
+                        await onClearStaleNotes();
+                      } finally {
+                        setIsClearingStale(false);
+                      }
+                    }}
+                    disabled={isClearingStale}
+                    className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-colors flex items-center gap-1"
+                  >
+                    {isClearingStale ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Clearing...
+                      </>
+                    ) : (
+                      "Clear stale notes"
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           {/* Public Balance */}
@@ -446,18 +508,30 @@ export function PrivacyBalanceCard({
               </div>
               
               {privateRevealState === "revealed" ? (
-                <p className="text-2xl font-bold text-white mb-1">{privateBalance}</p>
+                <>
+                  <p className="text-2xl font-bold text-white mb-1">{privateBalance}</p>
+                  {/* View decryption proof button */}
+                  {decryptionResult && decryptionResult.decryptedNotes.length > 0 && (
+                    <button
+                      onClick={() => setShowDecryptionProof(true)}
+                      className="text-[10px] text-brand-400 hover:text-brand-300 flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      View ElGamal Proof
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className="mb-1">
                   <p className="text-2xl font-bold text-brand-400 font-mono tracking-widest">•••••••</p>
                   <p className="text-[10px] text-brand-400/50 font-mono mt-1">
-                    {privateRevealState === "signing" ? "awaiting signature..." : 
+                    {privateRevealState === "signing" ? "awaiting signature..." :
                      privateRevealState === "decrypting" ? "decrypting..." : "encrypted"}
                   </p>
                 </div>
               )}
               <p className="text-sm text-gray-500">{symbol}</p>
-              
+
               <button
                 onClick={() => openWrapModal("unwrap")}
                 className="mt-3 w-full py-2 px-3 rounded-lg bg-surface-elevated/80 hover:bg-surface-elevated text-gray-300 text-sm font-medium transition-colors flex items-center justify-center gap-2"
@@ -637,68 +711,68 @@ export function PrivacyBalanceCard({
         )}
       </AnimatePresence>
 
-      {/* Signature Prompt Modal for revealing private balance */}
+      {/* ElGamal Reveal Modal - Multi-step cryptographic reveal flow */}
+      <ElGamalRevealModal
+        isOpen={showRevealModal}
+        onClose={() => setShowRevealModal(false)}
+        onReveal={handleRevealWithResult}
+      />
+
+      {/* ElGamal Decryption Proof Modal */}
       <AnimatePresence>
-        {showSignPrompt && (
+        {showDecryptionProof && decryptionResult && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowSignPrompt(false)}
+            onClick={() => setShowDecryptionProof(false)}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface-card border border-white/10 rounded-2xl p-6 max-w-sm w-full"
+              className="bg-surface-card border border-white/10 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col"
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-surface-border">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500/20 to-purple-500/20 flex items-center justify-center">
-                    <KeyRound className="w-5 h-5 text-brand-400" />
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500/20 to-brand-500/20 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-green-400" />
                   </div>
-                  <h3 className="font-semibold text-white">Signature Required</h3>
+                  <div>
+                    <h3 className="font-semibold text-white">ElGamal Decryption Proof</h3>
+                    <p className="text-xs text-gray-400">
+                      Cryptographic verification of your private balance
+                    </p>
+                  </div>
                 </div>
                 <button
-                  onClick={() => setShowSignPrompt(false)}
-                  className="text-gray-500 hover:text-white"
+                  onClick={() => setShowDecryptionProof(false)}
+                  className="p-2 rounded-lg hover:bg-surface-elevated text-gray-400"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
-              <div className="space-y-4">
-                <p className="text-sm text-gray-400">
-                  To reveal your encrypted private balance, sign a message with your wallet.
-                </p>
-                
-                <div className="p-3 rounded-lg bg-brand-500/10 border border-brand-500/20">
-                  <div className="flex items-start gap-2">
-                    <Shield className="w-4 h-4 text-brand-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-brand-400/80">
-                      Your balance is encrypted with ElGamal. The signature derives your 
-                      decryption key without exposing your private key.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowSignPrompt(false)}
-                    className="flex-1 px-4 py-2.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSignAndRevealPrivate}
-                    className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-brand-500 to-purple-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                  >
-                    <Fingerprint className="w-4 h-4" />
-                    Sign & Reveal
-                  </button>
-                </div>
+
+              {/* Scrollable Content */}
+              <div className="overflow-y-auto flex-1 p-4">
+                <ElGamalDecryptionDetails
+                  decryptedNotes={decryptionResult.decryptedNotes}
+                  totalBalance={decryptionResult.totalBalance}
+                  publicKey={decryptionResult.publicKey}
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-surface-border">
+                <button
+                  onClick={() => setShowDecryptionProof(false)}
+                  className="w-full py-2.5 rounded-lg bg-surface-elevated hover:bg-surface-border text-white font-medium transition-colors"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </motion.div>

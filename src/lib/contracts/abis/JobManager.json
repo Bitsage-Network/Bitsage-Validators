@@ -1,0 +1,1382 @@
+[
+  {
+    "type": "impl",
+    "name": "JobManagerImpl",
+    "interface_name": "sage_contracts::interfaces::job_manager::IJobManager"
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::interfaces::job_manager::JobType",
+    "variants": [
+      {
+        "name": "AIInference",
+        "type": "()"
+      },
+      {
+        "name": "AITraining",
+        "type": "()"
+      },
+      {
+        "name": "ProofGeneration",
+        "type": "()"
+      },
+      {
+        "name": "ProofVerification",
+        "type": "()"
+      },
+      {
+        "name": "DataPipeline",
+        "type": "()"
+      },
+      {
+        "name": "ConfidentialVM",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::ModelId",
+    "members": [
+      {
+        "name": "value",
+        "type": "core::integer::u256"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::interfaces::job_manager::VerificationMethod",
+    "variants": [
+      {
+        "name": "None",
+        "type": "()"
+      },
+      {
+        "name": "StatisticalSampling",
+        "type": "()"
+      },
+      {
+        "name": "ZeroKnowledgeProof",
+        "type": "()"
+      },
+      {
+        "name": "ConsensusValidation",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::JobSpec",
+    "members": [
+      {
+        "name": "job_type",
+        "type": "sage_contracts::interfaces::job_manager::JobType"
+      },
+      {
+        "name": "model_id",
+        "type": "sage_contracts::interfaces::job_manager::ModelId"
+      },
+      {
+        "name": "input_data_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "expected_output_format",
+        "type": "core::felt252"
+      },
+      {
+        "name": "verification_method",
+        "type": "sage_contracts::interfaces::job_manager::VerificationMethod"
+      },
+      {
+        "name": "max_reward",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "sla_deadline",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "compute_requirements",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "metadata",
+        "type": "core::array::Array::<core::felt252>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::JobId",
+    "members": [
+      {
+        "name": "value",
+        "type": "core::integer::u256"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::ProveJobData",
+    "members": [
+      {
+        "name": "circuit_id",
+        "type": "core::felt252"
+      },
+      {
+        "name": "public_inputs",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "private_inputs_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "expected_proof_size",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::WorkerId",
+    "members": [
+      {
+        "name": "value",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::JobResult",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "sage_contracts::interfaces::job_manager::JobId"
+      },
+      {
+        "name": "worker_id",
+        "type": "sage_contracts::interfaces::job_manager::WorkerId"
+      },
+      {
+        "name": "output_data_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "computation_proof",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "tee_quote",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "gas_used",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "execution_time",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::ModelRequirements",
+    "members": [
+      {
+        "name": "min_memory_gb",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "min_compute_units",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "required_gpu_type",
+        "type": "core::felt252"
+      },
+      {
+        "name": "framework_dependencies",
+        "type": "core::array::Array::<core::felt252>"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::interfaces::job_manager::JobState",
+    "variants": [
+      {
+        "name": "Queued",
+        "type": "()"
+      },
+      {
+        "name": "Processing",
+        "type": "()"
+      },
+      {
+        "name": "Completed",
+        "type": "()"
+      },
+      {
+        "name": "Paid",
+        "type": "()"
+      },
+      {
+        "name": "Failed",
+        "type": "()"
+      },
+      {
+        "name": "Cancelled",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::JobDetails",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "sage_contracts::interfaces::job_manager::JobId"
+      },
+      {
+        "name": "job_type",
+        "type": "sage_contracts::interfaces::job_manager::JobType"
+      },
+      {
+        "name": "client",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "state",
+        "type": "sage_contracts::interfaces::job_manager::JobState"
+      },
+      {
+        "name": "payment_amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "created_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "assigned_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "completed_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "result_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::job_manager::WorkerStats",
+    "members": [
+      {
+        "name": "total_jobs_completed",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "success_rate",
+        "type": "core::integer::u8"
+      },
+      {
+        "name": "average_completion_time",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "reputation_score",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "total_earnings",
+        "type": "core::integer::u256"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::interfaces::job_manager::IJobManager",
+    "items": [
+      {
+        "type": "function",
+        "name": "submit_ai_job",
+        "inputs": [
+          {
+            "name": "job_spec",
+            "type": "sage_contracts::interfaces::job_manager::JobSpec"
+          },
+          {
+            "name": "payment",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "client",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "submit_prove_job",
+        "inputs": [
+          {
+            "name": "prove_job_data",
+            "type": "sage_contracts::interfaces::job_manager::ProveJobData"
+          },
+          {
+            "name": "payment",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "client",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "assign_job_to_worker",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          },
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "submit_job_result",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          },
+          {
+            "name": "result",
+            "type": "sage_contracts::interfaces::job_manager::JobResult"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "distribute_rewards",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "register_model",
+        "inputs": [
+          {
+            "name": "model_hash",
+            "type": "core::felt252"
+          },
+          {
+            "name": "requirements",
+            "type": "sage_contracts::interfaces::job_manager::ModelRequirements"
+          },
+          {
+            "name": "pricing",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::ModelId"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_job_details",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::JobDetails"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_job_state",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::JobState"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_stats",
+        "inputs": [
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::WorkerStats"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "update_config",
+        "inputs": [
+          {
+            "name": "config_key",
+            "type": "core::felt252"
+          },
+          {
+            "name": "config_value",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "pause",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "unpause",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "emergency_withdraw",
+        "inputs": [
+          {
+            "name": "token",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "register_worker",
+        "inputs": [
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          },
+          {
+            "name": "worker_address",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "estimate_job_gas_requirement",
+        "inputs": [
+          {
+            "name": "job_spec",
+            "type": "sage_contracts::interfaces::job_manager::JobSpec"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "reserve_gas_for_job",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          },
+          {
+            "name": "estimated_gas",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "optimize_worker_gas_allocation",
+        "inputs": [
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          },
+          {
+            "name": "job_type",
+            "type": "sage_contracts::interfaces::job_manager::JobType"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "update_model_gas_cost",
+        "inputs": [
+          {
+            "name": "model_id",
+            "type": "sage_contracts::interfaces::job_manager::ModelId"
+          },
+          {
+            "name": "base_gas_cost",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_job_gas_efficiency",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u256, core::integer::u256)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_total_jobs",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_active_jobs",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_completed_jobs",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_address",
+        "inputs": [
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_id_by_address",
+        "inputs": [
+          {
+            "name": "worker_address",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_count",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_worker_active",
+        "inputs": [
+          {
+            "name": "worker_id",
+            "type": "sage_contracts::interfaces::job_manager::WorkerId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_paused",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_platform_config",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u16, core::integer::u256, core::integer::u64, core::integer::u256)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_proof_gated_payment",
+        "inputs": [
+          {
+            "name": "payment",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_proof_payment_ready",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "sage_contracts::interfaces::job_manager::JobId"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_reputation_manager",
+        "inputs": [
+          {
+            "name": "reputation_manager",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "set_cdc_pool_contract",
+        "inputs": [
+          {
+            "name": "cdc_pool",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_integration_contracts",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::starknet::contract_address::ContractAddress, core::starknet::contract_address::ContractAddress, core::starknet::contract_address::ContractAddress)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "enable_cdc_pool_circuit_breaker",
+        "inputs": [
+          {
+            "name": "duration",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "disable_cdc_pool_circuit_breaker",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_circuit_breaker_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::bool, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "schedule_upgrade",
+        "inputs": [
+          {
+            "name": "new_class_hash",
+            "type": "core::starknet::class_hash::ClassHash"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "cancel_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_upgrade_info",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::starknet::class_hash::ClassHash, core::integer::u64, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_upgrade_delay",
+        "inputs": [
+          {
+            "name": "delay",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "admin",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "payment_token",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "treasury",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "cdc_pool_contract",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::JobSubmitted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "client",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "payment",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::JobAssigned",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::JobCompleted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::JobCancelled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "client",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "reason",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "refund_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::PaymentReleased",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::ModelRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "model_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::WorkerRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "worker_id",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "worker_address",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "registered_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::ConfigUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "config_key",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "old_value",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "new_value",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "updated_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::ContractPaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "paused_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::ContractUnpaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "unpaused_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::EmergencyWithdrawal",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "token",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::CDCPoolNotificationFailed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "function_name",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::JobPaymentRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "sage_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "privacy_enabled",
+        "type": "core::bool",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::UpgradeScheduled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "scheduled_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "scheduled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::UpgradeExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "executed_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "executed_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::UpgradeCancelled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "cancelled_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "cancelled_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "cancelled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::job_manager::JobManager::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "JobSubmitted",
+        "type": "sage_contracts::job_manager::JobManager::JobSubmitted",
+        "kind": "nested"
+      },
+      {
+        "name": "JobAssigned",
+        "type": "sage_contracts::job_manager::JobManager::JobAssigned",
+        "kind": "nested"
+      },
+      {
+        "name": "JobCompleted",
+        "type": "sage_contracts::job_manager::JobManager::JobCompleted",
+        "kind": "nested"
+      },
+      {
+        "name": "JobCancelled",
+        "type": "sage_contracts::job_manager::JobManager::JobCancelled",
+        "kind": "nested"
+      },
+      {
+        "name": "PaymentReleased",
+        "type": "sage_contracts::job_manager::JobManager::PaymentReleased",
+        "kind": "nested"
+      },
+      {
+        "name": "ModelRegistered",
+        "type": "sage_contracts::job_manager::JobManager::ModelRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "WorkerRegistered",
+        "type": "sage_contracts::job_manager::JobManager::WorkerRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "ConfigUpdated",
+        "type": "sage_contracts::job_manager::JobManager::ConfigUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "ContractPaused",
+        "type": "sage_contracts::job_manager::JobManager::ContractPaused",
+        "kind": "nested"
+      },
+      {
+        "name": "ContractUnpaused",
+        "type": "sage_contracts::job_manager::JobManager::ContractUnpaused",
+        "kind": "nested"
+      },
+      {
+        "name": "EmergencyWithdrawal",
+        "type": "sage_contracts::job_manager::JobManager::EmergencyWithdrawal",
+        "kind": "nested"
+      },
+      {
+        "name": "CDCPoolNotificationFailed",
+        "type": "sage_contracts::job_manager::JobManager::CDCPoolNotificationFailed",
+        "kind": "nested"
+      },
+      {
+        "name": "JobPaymentRegistered",
+        "type": "sage_contracts::job_manager::JobManager::JobPaymentRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeScheduled",
+        "type": "sage_contracts::job_manager::JobManager::UpgradeScheduled",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeExecuted",
+        "type": "sage_contracts::job_manager::JobManager::UpgradeExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeCancelled",
+        "type": "sage_contracts::job_manager::JobManager::UpgradeCancelled",
+        "kind": "nested"
+      }
+    ]
+  }
+]

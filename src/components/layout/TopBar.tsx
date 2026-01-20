@@ -18,7 +18,9 @@ import {
   TrendingUp,
   Send,
   Menu,
+  Coins,
 } from "lucide-react";
+import { AddSageButton } from "@/components/token/AddSageButton";
 import { cn } from "@/lib/utils";
 
 interface TopBarProps {
@@ -262,6 +264,14 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                       <TrendingUp className="w-4 h-4" />
                       <span className="text-sm">Earnings</span>
                     </Link>
+
+                    {/* Add SAGE Token - Only show when not in demo mode */}
+                    {!isDemoMode && (
+                      <div className="px-1">
+                        <AddSageButton variant="compact" className="w-full justify-start px-3 py-2 rounded-lg" />
+                      </div>
+                    )}
+
                     <Link
                       href="/settings"
                       onClick={() => setShowProfileMenu(false)}

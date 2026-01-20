@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Coins,
-  ArrowLeftRight,
+  ArrowUpDown,
   Server,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +15,9 @@ import {
   Send,
   Wallet,
   X,
+  Vote,
+  TrendingUp,
+  Droplets,
 } from "lucide-react";
 import { LogoIcon } from "@/components/ui/Logo";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,6 +35,18 @@ const navItems = [
     href: "/wallet",
     icon: Wallet,
     description: "Privacy-first GPU earnings",
+  },
+  {
+    title: "Send",
+    href: "/send",
+    icon: Send,
+    description: "Public or private transfer",
+  },
+  {
+    title: "Get SAGE",
+    href: "/trade",
+    icon: ArrowUpDown,
+    description: "Buy & sell SAGE tokens",
   },
   {
     title: "Jobs",
@@ -52,16 +67,16 @@ const navItems = [
     description: "Stake to validate",
   },
   {
-    title: "Send",
-    href: "/send",
-    icon: Send,
-    description: "Transfer public or private",
+    title: "Earnings",
+    href: "/earnings",
+    icon: TrendingUp,
+    description: "Claim rewards & analytics",
   },
   {
-    title: "Bridge",
-    href: "/bridge",
-    icon: ArrowLeftRight,
-    description: "Multi-chain liquidity",
+    title: "Governance",
+    href: "/governance",
+    icon: Vote,
+    description: "Vote on proposals",
   },
 ];
 
