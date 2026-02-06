@@ -195,9 +195,9 @@ async function handleDetect(options) {
         }
         // Report GPU to coordinator (non-blocking)
         const config = loadConfig();
-        const coordinatorPort = config.services?.coordinator?.port || 3030;
+        const coordinatorPort = config.services?.coordinator?.port || 8080;
         try {
-            const res = await fetch(`http://localhost:${coordinatorPort}/api/v1/workers/gpu/register`, {
+            const res = await fetch(`http://localhost:${coordinatorPort}/api/workers/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({

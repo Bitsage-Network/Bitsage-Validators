@@ -88,12 +88,12 @@ export async function registerCommand(options) {
         if (success) {
             regSpinner.succeed("On-chain registration successful!");
             // Register with coordinator (non-blocking — coordinator may not be running)
-            const coordinatorPort = config.services?.coordinator?.port || 3030;
+            const coordinatorPort = config.services?.coordinator?.port || 8080;
             const coordinatorUrl = `http://localhost:${coordinatorPort}`;
             try {
                 const gpuModule = await import("./gpu.js");
                 const gpuInfo = await gpuModule.detectGPU();
-                const regResponse = await fetch(`${coordinatorUrl}/api/v1/workers/gpu/register`, {
+                const regResponse = await fetch(`${coordinatorUrl}/api/workers/register`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

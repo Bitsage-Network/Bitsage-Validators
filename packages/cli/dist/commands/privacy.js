@@ -450,8 +450,8 @@ async function executeDeposit(account, addresses, amount, commitment) {
 }
 async function requestWithdrawalProof(config, note, recipient, complianceLevel) {
     // Request proof from coordinator TEE worker
-    const coordinatorUrl = process.env.COORDINATOR_URL || "http://localhost:3030";
-    const response = await fetch(`${coordinatorUrl}/api/v1/tee/prove`, {
+    const coordinatorUrl = process.env.COORDINATOR_URL || "http://localhost:8080";
+    const response = await fetch(`${coordinatorUrl}/api/jobs/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

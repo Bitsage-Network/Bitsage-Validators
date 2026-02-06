@@ -99,7 +99,7 @@ export async function startCommand(options) {
                 console.log("");
                 if (!options.foreground) {
                     console.log(chalk.green("Services running in background:"));
-                    console.log(chalk.dim("  - coordinator: http://localhost:3030"));
+                    console.log(chalk.dim("  - coordinator: http://localhost:8080"));
                     console.log(chalk.dim("  - dashboard:   http://localhost:3000"));
                     if (options.gpu !== false) {
                         console.log(chalk.dim("  - gpu-worker:  running"));

@@ -253,7 +253,7 @@ export async function healthCommand(options: HealthOptions): Promise<void> {
       // Check capabilities if verbose
       if (options.verbose) {
         const capsResponse = await fetch(
-          `http://localhost:${config.services.coordinator.port}/api/v1/prover/capabilities`
+          `http://localhost:${config.services.coordinator.port}/api/pricing/summary`
         );
         if (capsResponse.ok) {
           const caps = await capsResponse.json();
