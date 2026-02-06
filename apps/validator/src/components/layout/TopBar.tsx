@@ -31,15 +31,10 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   const pathname = usePathname();
   const { address, status } = useAccount();
   const { disconnect } = useDisconnect();
-  const [isDemoMode, setIsDemoMode] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
-  const isConnected = status === "connected" || isDemoMode;
-
-  useEffect(() => {
-    setIsDemoMode(localStorage.getItem("bitsage_demo_mode") === "true");
-  }, []);
+  const isConnected = status === "connected";
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -58,12 +53,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   };
 
   const handleDisconnect = () => {
-    if (isDemoMode) {
-      localStorage.removeItem("bitsage_demo_mode");
-      window.location.href = "/connect";
-    } else {
-      disconnect();
-    }
+    disconnect();
     setShowProfileMenu(false);
   };
 
@@ -183,23 +173,18 @@ export function TopBar({ onMenuClick }: TopBarProps) {
               )}
             >
               <div
-                className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center",
-                  isDemoMode
-                    ? "bg-gradient-to-br from-orange-500 to-yellow-500"
-                    : "bg-gradient-to-br from-emerald-500 to-violet-500"
-                )}
+                className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-emerald-500 to-violet-500"
               >
                 <span className="text-xs font-bold text-white">
-                  {isDemoMode ? "D" : address ? address.slice(2, 4).toUpperCase() : "?"}
+                  {address ? address.slice(2, 4).toUpperCase() : "?"}
                 </span>
               </div>
               <div className="text-left hidden sm:block">
                 <p className="text-sm font-medium text-white">
-                  {isDemoMode ? "Demo" : address ? formatAddress(address) : "Connected"}
+                  {address ? formatAddress(address) : "Connected"}
                 </p>
-                <p className={cn("text-xs", isDemoMode ? "text-orange-400" : "text-emerald-400")}>
-                  {isDemoMode ? "Preview Mode" : "Validator"}
+                <p className="text-xs text-emerald-400">
+                  Validator
                 </p>
               </div>
               <ChevronDown
@@ -224,23 +209,18 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                   <div className="p-3 border-b border-surface-border">
                     <div className="flex items-center gap-3">
                       <div
-                        className={cn(
-                          "w-10 h-10 rounded-lg flex items-center justify-center",
-                          isDemoMode
-                            ? "bg-gradient-to-br from-orange-500 to-yellow-500"
-                            : "bg-gradient-to-br from-emerald-500 to-violet-500"
-                        )}
+                        className="w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-emerald-500 to-violet-500"
                       >
                         <span className="text-sm font-bold text-white">
-                          {isDemoMode ? "D" : address ? address.slice(2, 4).toUpperCase() : "?"}
+                          {address ? address.slice(2, 4).toUpperCase() : "?"}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-white truncate">
-                          {isDemoMode ? "Demo Mode" : address ? formatAddress(address) : "Connected"}
+                          {address ? formatAddress(address) : "Connected"}
                         </p>
-                        <p className={cn("text-xs", isDemoMode ? "text-orange-400" : "text-emerald-400")}>
-                          ● {isDemoMode ? "Preview" : "Active Validator"}
+                        <p className="text-xs text-emerald-400">
+                          ● Active Validator
                         </p>
                       </div>
                     </div>
@@ -265,12 +245,9 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                       <span className="text-sm">Earnings</span>
                     </Link>
 
-                    {/* Add SAGE Token - Only show when not in demo mode */}
-                    {!isDemoMode && (
-                      <div className="px-1">
-                        <AddSageButton variant="compact" className="w-full justify-start px-3 py-2 rounded-lg" />
-                      </div>
-                    )}
+                    <div className="px-1">
+                      <AddSageButton variant="compact" className="w-full justify-start px-3 py-2 rounded-lg" />
+                    </div>
 
                     <Link
                       href="/settings"
@@ -286,15 +263,10 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                   <div className="p-2 border-t border-surface-border">
                     <button
                       onClick={handleDisconnect}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg w-full transition-colors",
-                        isDemoMode
-                          ? "text-orange-400 hover:bg-orange-500/10"
-                          : "text-red-400 hover:bg-red-500/10"
-                      )}
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg w-full transition-colors text-red-400 hover:bg-red-500/10"
                     >
                       <LogOut className="w-4 h-4" />
-                      <span className="text-sm">{isDemoMode ? "Exit Demo" : "Disconnect"}</span>
+                      <span className="text-sm">Disconnect</span>
                     </button>
                   </div>
                 </motion.div>

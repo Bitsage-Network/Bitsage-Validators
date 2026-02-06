@@ -78,7 +78,7 @@ export default function NetworkPage() {
 
   // Determine data source status
   const dataSource: DataSourceType = useMemo(() => {
-    if (!address) return "demo";
+    if (!address) return "fallback";
     if (statsError) return "fallback";
     if (wsConnected && streamedStats) return "live";
     if (networkStats) return "cached";
@@ -225,15 +225,13 @@ export default function NetworkPage() {
         <DataSourceBanner
           source={dataSource}
           message={
-            dataSource === "demo"
-              ? "Connect your wallet to see real network data"
-              : dataSource === "fallback"
-                ? "Unable to connect to network API. Showing cached data."
-                : undefined
+            dataSource === "fallback"
+              ? "Unable to connect to network API. Showing cached data."
+              : undefined
           }
           onDismiss={() => setDismissedBanner(true)}
-          onAction={dataSource === "demo" ? undefined : () => refetchStats()}
-          actionLabel={dataSource === "demo" ? undefined : "Retry"}
+          onAction={() => refetchStats()}
+          actionLabel="Retry"
         />
       )}
 
@@ -247,9 +245,7 @@ export default function NetworkPage() {
           <p className="text-gray-400 mt-1">
             {dataSource === "live"
               ? "Real-time status of the BitSage validator network"
-              : dataSource === "demo"
-                ? "Preview mode - connect wallet for live data"
-                : "Network status (cached data)"}
+              : "Network status (cached data)"}
           </p>
         </div>
         <button

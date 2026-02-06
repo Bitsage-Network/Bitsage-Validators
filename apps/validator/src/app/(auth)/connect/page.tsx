@@ -8,7 +8,6 @@ import {
   Shield,
   ArrowRight,
   Loader2,
-  Play,
   Cpu,
   Zap,
   Check,
@@ -174,15 +173,6 @@ export default function ConnectPage() {
     return false; // Return false since we need user to confirm in modal
   }, [isConnected, address, openSignatureModal]);
 
-  // Check for demo mode in localStorage
-  useEffect(() => {
-    if (!mounted) return;
-    const isDemoMode = localStorage.getItem("bitsage_demo_mode") === "true";
-    if (isDemoMode) {
-      router.push("/dashboard");
-    }
-  }, [router, mounted]);
-
   const handleConnect = async (connector: Connector) => {
     try {
       setConnectingConnectorId(connector.id);
@@ -210,12 +200,6 @@ export default function ConnectPage() {
     }
     // Open the professional signature modal
     openSignatureModal();
-  };
-
-  const handleDemoMode = () => {
-    localStorage.setItem("bitsage_demo_mode", "true");
-    document.cookie = "demo-auth=obelysk-verified; path=/; max-age=86400";
-    router.push("/dashboard");
   };
 
   const handleRegister = async () => {
@@ -466,32 +450,6 @@ export default function ConnectPage() {
                     </div>
                   )}
 
-                  {/* Demo Mode Divider */}
-                  <div className="relative my-4">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-surface-border"></div>
-                    </div>
-                    <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-surface-card text-gray-500">or</span>
-                    </div>
-                  </div>
-
-                  {/* Demo Mode Button */}
-                  <motion.button
-                    onClick={handleDemoMode}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="w-full flex items-center justify-center gap-2 p-4
-                             bg-gradient-to-r from-emerald-600/20 to-accent-purple/20
-                             border border-emerald-500/30 rounded-xl
-                             hover:border-emerald-500/50 transition-all duration-200"
-                  >
-                    <Play className="w-5 h-5 text-emerald-400" />
-                    <span className="text-white font-medium">Try Demo Mode</span>
-                  </motion.button>
-                  <p className="text-xs text-gray-500 text-center mt-2">
-                    Preview the dashboard with mock data
-                  </p>
                 </div>
               </div>
             </motion.div>

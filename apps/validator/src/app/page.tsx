@@ -10,11 +10,8 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check for demo mode
-    const isDemoMode = localStorage.getItem("bitsage_demo_mode") === "true";
-    
     if (!isConnecting && !isReconnecting) {
-      if (address || isDemoMode) {
+      if (address) {
         router.push("/dashboard");
       } else {
         router.push("/connect");
