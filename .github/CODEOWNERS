@@ -1,0 +1,23 @@
+# BitSage Validator — Code Owners
+# These owners will be requested for review on PRs touching their areas.
+
+# Default — catches everything
+* @bitsage-network/core
+
+# Validator app
+/apps/validator/ @bitsage-network/frontend
+
+# Smart contracts
+/packages/contracts/ @bitsage-network/contracts
+
+# CLI tooling
+/packages/cli/ @bitsage-network/infra
+
+# CI/CD & infrastructure
+/.github/ @bitsage-network/infra
+/turbo.json @bitsage-network/infra
+
+# Obelysk privacy components
+/apps/validator/src/components/privacy/ @bitsage-network/crypto
+/apps/validator/src/lib/crypto/ @bitsage-network/crypto
+/apps/validator/src/lib/obelysk/ @bitsage-network/crypto

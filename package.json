@@ -1,40 +1,34 @@
 {
-  "name": "bitsage-validator",
+  "name": "bitsage-network",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint ."
-  },
-  "dependencies": {
-    "@bitsagecli/sdk": "^0.1.0",
-    "@starknet-react/chains": "^3.1.1",
-    "@starknet-react/core": "^3.7.0",
-    "@tanstack/react-query": "^5.64.0",
-    "axios": "^1.7.9",
-    "clsx": "^2.1.1",
-    "framer-motion": "^11.15.0",
-    "get-starknet-core": "^4.0.0",
-    "lucide-react": "^0.468.0",
-    "next": "14.2.28",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "starknet": "^6.17.0",
-    "tailwind-merge": "^2.6.0",
-    "zustand": "^5.0.2"
+    "dev": "turbo dev",
+    "dev:validator": "turbo dev --filter=@bitsage/validator",
+    "dev:governance": "turbo dev --filter=@bitsage/governance",
+    "dev:faucet": "turbo dev --filter=@bitsage/faucet",
+    "build": "turbo build",
+    "build:validator": "turbo build --filter=@bitsage/validator",
+    "build:governance": "turbo build --filter=@bitsage/governance",
+    "build:faucet": "turbo build --filter=@bitsage/faucet",
+    "lint": "turbo lint",
+    "clean": "turbo clean && rm -rf node_modules",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test"
   },
   "devDependencies": {
-    "@tanstack/react-query-devtools": "^5.91.1",
+    "turbo": "^2.3.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.21",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
     "typescript": "^5"
+  },
+  "packageManager": "npm@10.2.4",
+  "engines": {
+    "node": ">=18"
   }
 }
