@@ -18,7 +18,6 @@ import {
   Monitor,
   Wallet,
   Key,
-  AlertTriangle,
   Server,
   Loader2,
   Zap,
@@ -40,7 +39,6 @@ export default function SettingsPage() {
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
   const [copied, setCopied] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(false);
   const [commissionBps, setCommissionBps] = useState(500); // 5% default
   const [regTxHash, setRegTxHash] = useState<string | null>(null);
 
@@ -136,10 +134,6 @@ export default function SettingsPage() {
     }
   }, [txData, refetchValidatorStatus]);
 
-  useEffect(() => {
-    setIsDemoMode(localStorage.getItem("bitsage_demo_mode") === "true");
-  }, []);
-
   const copyAddress = () => {
     if (address) {
       navigator.clipboard.writeText(address);
@@ -149,7 +143,6 @@ export default function SettingsPage() {
   };
 
   const handleDisconnect = () => {
-    localStorage.removeItem("bitsage_demo_mode");
     disconnect();
     window.location.href = "/connect";
   };
@@ -177,21 +170,6 @@ export default function SettingsPage() {
           </h2>
         </div>
         <div className="p-6 space-y-4">
-          {/* Demo Mode Warning */}
-          {isDemoMode && (
-            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 mb-4">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-orange-400" />
-                <div>
-                  <p className="text-sm font-medium text-orange-400">Demo Mode Active</p>
-                  <p className="text-xs text-gray-400">
-                    You're viewing the app with mock data. Connect a real wallet for full functionality.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Wallet Address */}
           <div>
             <label className="block text-sm text-gray-400 mb-2">Wallet Address</label>
@@ -199,12 +177,12 @@ export default function SettingsPage() {
               <div className="flex-1 flex items-center gap-3 p-3 bg-surface-elevated rounded-xl border border-surface-border">
                 <Wallet className="w-5 h-5 text-gray-400" />
                 <code className="text-sm text-white font-mono flex-1">
-                  {isDemoMode ? "0xDEMO...MODE" : address ? formatAddress(address) : "Not connected"}
+                  {address ? formatAddress(address) : "Not connected"}
                 </code>
               </div>
               <button
                 onClick={copyAddress}
-                disabled={isDemoMode || !address}
+                disabled={!address}
                 className="p-3 rounded-xl bg-surface-elevated border border-surface-border hover:border-emerald-500/50 transition-colors disabled:opacity-50"
               >
                 {copied ? (
@@ -213,7 +191,7 @@ export default function SettingsPage() {
                   <Copy className="w-5 h-5 text-gray-400" />
                 )}
               </button>
-              {!isDemoMode && address && (
+              {address && (
                 <a
                   href={`https://sepolia.starkscan.co/contract/${address}`}
                   target="_blank"
@@ -241,7 +219,7 @@ export default function SettingsPage() {
             className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            {isDemoMode ? "Exit Demo Mode" : "Disconnect Wallet"}
+            Disconnect Wallet
           </button>
         </div>
       </motion.div>
@@ -308,7 +286,7 @@ export default function SettingsPage() {
               {/* Register Button */}
               <button
                 onClick={handleRegisterValidator}
-                disabled={txPending || !address || isDemoMode}
+                disabled={txPending || !address}
                 className="w-full btn-glow py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {txPending ? (
@@ -343,7 +321,7 @@ export default function SettingsPage() {
               {/* Exit Button */}
               <button
                 onClick={handleExitValidator}
-                disabled={txPending || isDemoMode}
+                disabled={txPending}
                 className="w-full p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {txPending ? (

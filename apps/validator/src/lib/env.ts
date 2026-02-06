@@ -16,7 +16,6 @@ const ENV_VALUES = {
   NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
   NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
-  NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE,
   NEXT_PUBLIC_SAGE_TOKEN_ADDRESS: process.env.NEXT_PUBLIC_SAGE_TOKEN_ADDRESS,
   NEXT_PUBLIC_OTC_ORDERBOOK_ADDRESS: process.env.NEXT_PUBLIC_OTC_ORDERBOOK_ADDRESS,
   NEXT_PUBLIC_PRIVACY_POOLS_ADDRESS: process.env.NEXT_PUBLIC_PRIVACY_POOLS_ADDRESS,
@@ -144,8 +143,7 @@ export function validateEnv(): { valid: boolean; errors: string[] } {
     }
 
     // Demo mode must be off
-    const demoMode = getEnv('NEXT_PUBLIC_DEMO_MODE');
-    if (demoMode === 'true') {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
       errors.push('NEXT_PUBLIC_DEMO_MODE must be "false" for mainnet.');
     }
   }
@@ -297,6 +295,18 @@ export function getConfig(): EnvConfig {
     _config = getEnvConfig();
   }
   return _config;
+}
+
+/**
+ * Server-side RPC URL getter
+ * Supports non-NEXT_PUBLIC env vars that are only available on the server
+ */
+export function getServerRpcUrl(): string {
+  const network = (getEnv('NEXT_PUBLIC_STARKNET_NETWORK') || 'sepolia') as StarknetNetwork;
+  const defaultRpcUrl = network === 'mainnet'
+    ? 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7'
+    : 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo';
+  return process.env.RPC_URL || getEnv('NEXT_PUBLIC_RPC_URL') || defaultRpcUrl;
 }
 
 // Validate on module load (will log warnings in development)

@@ -37,7 +37,7 @@ import { usePrivacyPool } from "@/lib/hooks/usePrivacyPool";
 import { PRIVACY_DENOMINATIONS, type PrivacyDenomination } from "@/lib/crypto";
 import { usePrivacyKeys } from "@/lib/hooks/usePrivacyKeys";
 import { useDataSource } from "@/lib/hooks/useDataSource";
-import { DataSourceIndicator, DataSourceBanner } from "@/components/common/DataSourceIndicator";
+import { DataSourceIndicator } from "@/components/common/DataSourceIndicator";
 
 // Format bigint SAGE amounts (18 decimals)
 function formatSage(amount: bigint | undefined | null): string {
@@ -336,16 +336,6 @@ export default function EarningsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Demo Mode Banner */}
-      {dataSource.isDemoMode && (
-        <DataSourceBanner
-          source="demo"
-          message="You're viewing sample earnings data. Connect your wallet to see real rewards."
-          actionLabel="Connect Wallet"
-          onAction={() => window.location.href = "/connect"}
-        />
-      )}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

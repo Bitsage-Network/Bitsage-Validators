@@ -13,9 +13,8 @@ import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
 import { KeyboardShortcutsModal, FloatingHelpButton } from "@/components/help/KeyboardShortcutsModal";
 import { CommandPalette, useCommandPalette } from "@/components/ui/CommandPalette";
 import { useGlobalShortcuts } from "@/lib/hooks/useKeyboardShortcuts";
-import { Loader2, FlaskConical, X, Wallet } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
 
 // Clear wallet cookie on disconnect
 function clearWalletCookie() {
@@ -32,8 +31,6 @@ export default function AppLayout({
   const { address, isConnecting, isReconnecting } = useAccount();
   const router = useRouter();
   const [ready, setReady] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(false);
-  const [demoBannerDismissed, setDemoBannerDismissed] = useState(false);
   const [hasWalletCookie, setHasWalletCookie] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -50,9 +47,6 @@ export default function AppLayout({
 
   // Initialize on mount
   useEffect(() => {
-    const demoMode = localStorage.getItem("bitsage_demo_mode") === "true";
-    setIsDemoMode(demoMode);
-
     // Check if wallet was previously verified (cookie survives page nav)
     const cookieExists = document.cookie.includes('wallet-verified');
     setHasWalletCookie(cookieExists);
@@ -64,7 +58,7 @@ export default function AppLayout({
 
   // Redirect when disconnected (after ready)
   useEffect(() => {
-    if (ready && !isConnecting && !isReconnecting && !address && !isDemoMode) {
+    if (ready && !isConnecting && !isReconnecting && !address) {
       if (hasWalletCookie) {
         // Wallet cookie exists but address not yet available — autoConnect may
         // still be in progress. Give it extra time before giving up.
@@ -77,14 +71,13 @@ export default function AppLayout({
       }
       router.push("/connect");
     }
-  }, [ready, address, isConnecting, isReconnecting, isDemoMode, hasWalletCookie, router]);
+  }, [ready, address, isConnecting, isReconnecting, hasWalletCookie, router]);
 
   // Show loading only during initial connection
   const isLoading = !ready || isConnecting || isReconnecting;
-  const needsAuth = !address && !isDemoMode && !hasWalletCookie;
+  const needsAuth = !address && !hasWalletCookie;
 
-  // Skip WebSocket in demo mode to avoid connection errors
-  const shouldConnectWebSocket = !!address && !isDemoMode;
+  const shouldConnectWebSocket = !!address;
 
   // Show loading overlay without destroying component tree
   const loadingOverlay = (isLoading || needsAuth) && (
@@ -104,41 +97,6 @@ export default function AppLayout({
           <div className="min-h-screen bg-surface-dark bg-grid">
             {/* Global connection status banner */}
             <ConnectionStatus showOnlyWhenDisconnected />
-
-            {/* Demo Mode Banner */}
-            {isDemoMode && !demoBannerDismissed && (
-              <div className="bg-purple-500/10 border-b border-purple-500/30 px-4 py-2">
-                <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-1.5 bg-purple-500/20 rounded-lg">
-                      <FlaskConical className="w-4 h-4 text-purple-400" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-purple-300">Demo Mode</span>
-                      <span className="text-sm text-purple-400/80">
-                        You&apos;re viewing sample data. Connect your wallet for real network data.
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Link
-                      href="/connect"
-                      className="flex items-center gap-1.5 text-sm font-medium text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 px-3 py-1.5 rounded-lg transition-colors"
-                    >
-                      <Wallet className="w-4 h-4" />
-                      Connect Wallet
-                    </Link>
-                    <button
-                      onClick={() => setDemoBannerDismissed(true)}
-                      className="text-purple-400 hover:text-purple-300 p-1"
-                      title="Dismiss"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <Sidebar
               collapsed={sidebarCollapsed}
