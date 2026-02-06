@@ -25,6 +25,7 @@ import { useSession, useSessionStatus, Session, SessionConfig, SessionKeyPair, S
 import { getUnspentBalance, getUnspentNotes, getNotes, deleteNote } from "@/lib/crypto/keyStore";
 import { usePrivacyKeys as useLocalPrivacyKeys, type DecryptedNote } from "@/lib/hooks/usePrivacyKeys";
 import type { ECPoint } from "@/lib/crypto";
+import { getConfig } from "@/lib/env";
 
 // Types
 export interface ObelyskBalance {
@@ -234,7 +235,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const API_BASE = getConfig().apiUrl;
 
     const loadPrivacyPoolBalance = async () => {
       try {
@@ -310,7 +311,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
   const clearStaleNotes = useCallback(async () => {
     if (!address) return;
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const API_BASE = getConfig().apiUrl;
     const notes = await getNotes(address);
 
     let cleared = 0;

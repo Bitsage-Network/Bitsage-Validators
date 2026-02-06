@@ -297,6 +297,18 @@ export function getConfig(): EnvConfig {
   return _config;
 }
 
+/**
+ * Server-side RPC URL getter
+ * Supports non-NEXT_PUBLIC env vars that are only available on the server
+ */
+export function getServerRpcUrl(): string {
+  const network = (getEnv('NEXT_PUBLIC_STARKNET_NETWORK') || 'sepolia') as StarknetNetwork;
+  const defaultRpcUrl = network === 'mainnet'
+    ? 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7'
+    : 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo';
+  return process.env.RPC_URL || getEnv('NEXT_PUBLIC_RPC_URL') || defaultRpcUrl;
+}
+
 // Validate on module load (will log warnings in development)
 if (typeof window !== 'undefined') {
   // Client-side: validate and log
