@@ -611,17 +611,6 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
           "Private transfer via privacy client is not yet supported. " +
           "Use the SDK's executePrivateTransfer hook instead."
         );
-
-        // When privacy client transfer is available, replace the throw above with:
-        //   const result = await privacyClient.transfer({ to, amount: amountBigInt });
-        //   const txHash = result.transaction_hash;
-        //   await provider.waitForTransaction(txHash);
-        //   ... update state with real tx data ...
-
-        // Update decrypted balance
-        if (decryptedPrivateBalance !== null) {
-          setDecryptedPrivateBalance(decryptedPrivateBalance! - amountBigInt);
-        }
       }
     } catch (error) {
       setProvingState("error");

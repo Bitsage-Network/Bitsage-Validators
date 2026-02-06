@@ -182,6 +182,7 @@ async function fetchMerkleProof(
   path_indices: number[];
   root: string;
   leafIndex: number;
+  treeSize: number;
 } | null> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/privacy/proof/${commitment}`);
@@ -203,6 +204,7 @@ async function fetchMerkleProof(
       path_indices: data.path_indices.map((p: number) => p),
       root: data.current_root || data.root,
       leafIndex: data.leaf_index,
+      treeSize: data.tree_size ?? data.siblings.length + 1,
     };
   } catch (error) {
     console.error("Error fetching Merkle proof:", error);
@@ -834,20 +836,26 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // NOT H(nullifier_secret, commitment)!
         // The leaf_index is returned by pp_deposit and stored in the note
         if (note.leafIndex === 0 && note.depositTxHash) {
-          // Attempt recovery from transaction receipt
+          // leafIndex 0 is the default/unset value but is also valid (first deposit).
+          // Try to recover the real value; track whether recovery succeeded.
+          let recovered = false;
+
           const fetchedIndex = await fetchLeafIndexFromReceipt(note.depositTxHash, note.commitment);
           if (fetchedIndex !== null) {
             note.leafIndex = fetchedIndex;
             await updateNoteLeafIndex(note.commitment, fetchedIndex);
+            recovered = true;
           } else {
             // Fallback: try via backend Merkle proof endpoint
             const merkleData = await fetchMerkleProof(note.commitment);
-            if (merkleData?.leafIndex) {
+            if (merkleData && typeof merkleData.leafIndex === "number") {
               note.leafIndex = merkleData.leafIndex;
               await updateNoteLeafIndex(note.commitment, merkleData.leafIndex);
+              recovered = true;
             }
           }
-          if (note.leafIndex === 0) {
+
+          if (!recovered) {
             throw new Error("Cannot withdraw: leafIndex unavailable. Deposit may not be indexed yet.");
           }
         }
@@ -880,8 +888,8 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           root: merkleProof.root,
         };
 
-        // Update note's leafIndex if it was 0
-        if (note.leafIndex === 0 && merkleProof.leafIndex > 0) {
+        // Update note's leafIndex from Merkle proof if still at default
+        if (note.leafIndex === 0 && typeof merkleProof.leafIndex === "number") {
           await updateNoteLeafIndex(noteCommitment, merkleProof.leafIndex);
           note.leafIndex = merkleProof.leafIndex;
         }
@@ -924,10 +932,6 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           amount: cairo.uint256(amountWei),
           recipient: recipientAddress,
           range_proof_data: [],
-          // Include audit key if auditable compliance
-          audit_key: complianceLevel === "auditable" && complianceOptions?.auditKey
-            ? complianceOptions.auditKey
-            : null,
         };
 
         // ==============================
@@ -1013,7 +1017,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         pathIndices: merkleProof.path_indices.map((i: number) => i === 1),
         leaf: noteCommitment,
         root: merkleProof.root,
-        treeSize: merkleProof.leafIndex + 1, // approximate tree size
+        treeSize: merkleProof.treeSize,
       };
 
       // Sign ragequit authorization

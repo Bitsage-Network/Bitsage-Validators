@@ -1343,7 +1343,11 @@ export const getASPMembershipProof = async (
     const response = await apiClient.get<{ proof: string[]; root: string; leaf_index: number }>(
       `/api/privacy/asp/${setId}/proof/${commitment}`
     );
-    return response.data;
+    const data = response.data;
+    if (!data || !Array.isArray(data.proof) || typeof data.root !== "string") {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }

@@ -32,7 +32,6 @@ interface ElGamalRevealModalProps {
     decryptedNotes: DecryptedNote[];
     publicKey: ECPoint;
   }>;
-  notesCount?: number;  // Pre-fetch count to show in UI
 }
 
 // Helper to format EC point for display
@@ -50,7 +49,6 @@ export function ElGamalRevealModal({
   isOpen,
   onClose,
   onReveal,
-  notesCount = 0,
 }: ElGamalRevealModalProps) {
   const [step, setStep] = useState<RevealStep>("request_signature");
   const [error, setError] = useState<string | null>(null);
@@ -369,7 +367,7 @@ export function ElGamalRevealModal({
                 </div>
               )}
 
-              {/* Step 6: Complete */}
+              {/* Step 4: Complete */}
               {step === "complete" && result && (
                 <div className="space-y-5">
                   <div className="text-center py-4">
@@ -490,6 +488,8 @@ export function ElGamalRevealModal({
                         hasStartedRef.current = false;
                         setStep("request_signature");
                         setError(null);
+                        setResult(null);
+                        setCurrentDecryptingNote(0);
                         setDecryptionLogs([]);
                       }}
                       className="flex-1 py-3 rounded-xl bg-violet-500 hover:bg-violet-400 text-white font-medium transition-colors"
