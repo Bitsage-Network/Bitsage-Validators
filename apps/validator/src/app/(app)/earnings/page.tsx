@@ -135,7 +135,7 @@ export default function EarningsPage() {
   const chartData = useMemo(() => {
     // Priority 1: Use database-backed chart data
     if (dbChartData?.data && dbChartData.data.length > 0) {
-      return dbChartData.data.map((point: any) => {
+      return dbChartData.data.map((point: { date: string; amount: string; count: number }) => {
         const date = new Date(point.date);
         const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         return {

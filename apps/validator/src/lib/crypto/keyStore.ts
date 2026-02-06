@@ -407,8 +407,6 @@ export async function updateNoteLeafIndex(
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
-
-    console.log(`Updated note ${commitment.slice(0, 10)}... leafIndex to ${leafIndex}`);
   } else {
     console.warn(`Note not found for commitment: ${commitment}`);
   }
