@@ -86,7 +86,32 @@ export async function registerCommand(options) {
         regSpinner.text = "Waiting for confirmation...";
         const success = await waitForTransaction(client, txHash);
         if (success) {
-            regSpinner.succeed("Registration successful!");
+            regSpinner.succeed("On-chain registration successful!");
+            // Register with coordinator (non-blocking — coordinator may not be running)
+            const coordinatorPort = config.services?.coordinator?.port || 3030;
+            const coordinatorUrl = `http://localhost:${coordinatorPort}`;
+            try {
+                const gpuModule = await import("./gpu.js");
+                const gpuInfo = await gpuModule.detectGPU();
+                const regResponse = await fetch(`${coordinatorUrl}/api/v1/workers/gpu/register`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        worker_id: config.wallet.address,
+                        owner_wallet: config.wallet.address,
+                        gpu_model: gpuInfo.name,
+                        gpu_backend: gpuInfo.type,
+                        vram_gb: gpuInfo.vramGb,
+                        capacity: 1,
+                    }),
+                });
+                if (regResponse.ok) {
+                    console.log(chalk.green("  ✓ Registered with coordinator"));
+                }
+            }
+            catch {
+                // Coordinator not running — that's fine, will register on next start
+            }
             console.log("");
             console.log(chalk.green("  ✓ You are now registered as a validator"));
             console.log(chalk.dim(`    Transaction: ${txHash}`));

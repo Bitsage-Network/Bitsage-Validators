@@ -27,9 +27,14 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor for auth and logging
+// Request interceptor for auth, API versioning, and logging
 apiClient.interceptors.request.use(
   (config) => {
+    // API versioning: rewrite /api/ paths to /api/v1/ to match coordinator routes
+    if (config.url?.startsWith('/api/') && !config.url.startsWith('/api/v1/')) {
+      config.url = config.url.replace('/api/', '/api/v1/');
+    }
+
     // Add wallet address to headers if available (for authenticated requests)
     const walletAddress = typeof window !== 'undefined'
       ? localStorage.getItem('wallet_address')
@@ -43,7 +48,6 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('[API] Request error:', error);
     return Promise.reject(error);
   }
 );
@@ -78,15 +82,11 @@ apiClient.interceptors.response.use(
       });
     }
 
-    console.error(`[API] Error ${status}: ${message}`);
-
-    // Handle specific error codes
+    // Handle specific error codes (silent — errors propagated via rejection)
     if (status === 401) {
-      // Handle unauthorized - could redirect to login
-      console.warn('[API] Unauthorized request');
+      // Unauthorized — could redirect to login
     } else if (status === 429) {
-      // Handle rate limiting
-      console.warn('[API] Rate limited');
+      // Rate limited — caller should handle retry
     }
 
     return Promise.reject(error);
@@ -709,14 +709,14 @@ export interface WalletActivity {
 // ============================================================================
 
 // Health & Stats
-export const getHealth = () => apiClient.get('/api/health');
-export const getStats = () => apiClient.get<NetworkStats>('/api/stats');
-export const getNetworkStats = () => apiClient.get<NetworkStats>('/api/network/stats');
+export const getHealth = () => apiClient.get('/health');
+export const getStats = () => apiClient.get<NetworkStats>('/api/workers/stats');
+export const getNetworkStats = () => apiClient.get<NetworkStats>('/api/workers/stats');
 
 // Validator
 export const getValidatorStatus = () => apiClient.get<ValidatorStatus>('/api/validator/status');
-export const getGPUMetrics = () => apiClient.get<GPUMetrics[]>('/api/validator/gpus');
-export const getRewards = () => apiClient.get<RewardsInfo>('/api/validator/rewards');
+export const getGPUMetrics = () => apiClient.get<GPUMetrics[]>('/api/workers/gpu');
+export const getRewards = () => apiClient.get<RewardsInfo>('/api/billing/earnings');
 
 // Jobs
 export const getJobs = (params?: {
@@ -726,7 +726,7 @@ export const getJobs = (params?: {
   search?: string;
 }) => apiClient.get<JobsResponse>('/api/jobs', { params });
 
-export const getJobStatus = (jobId: string) => apiClient.get<JobInfo>(`/api/jobs/${jobId}`);
+export const getJobStatus = (jobId: string) => apiClient.get<JobInfo>(`/api/workers/job/${jobId}`);
 
 // ============================================================================
 // Database-backed API Types (DEV 1)
@@ -1075,17 +1075,17 @@ export const getStakingLeaderboard = (params?: {
   offset?: number;
 }) => apiClient.get<{ leaderboard: StakingLeaderboardEntry[] }>('/api/staking/db/leaderboard', { params });
 
-// Earnings from Database
+// Earnings from Coordinator Billing API
 export const getNetworkEarningsStats = () =>
-  apiClient.get<NetworkEarningsStats>('/api/earnings/network/stats');
+  apiClient.get<NetworkEarningsStats>('/api/billing/earnings/stats');
 
 export const getWorkerEarnings = (address: string) =>
-  apiClient.get<WorkerEarningsRecord>(`/api/earnings/worker/${address}`);
+  apiClient.get<WorkerEarningsRecord>('/api/billing/earnings', { params: { wallet: address } });
 
 export const getEarningsLeaderboard = (params?: {
   limit?: number;
   offset?: number;
-}) => apiClient.get<{ leaderboard: EarningsLeaderboardEntry[] }>('/api/earnings/leaderboard', { params });
+}) => apiClient.get<{ leaderboard: EarningsLeaderboardEntry[] }>('/api/billing/earnings/leaderboard', { params });
 
 // Generate chart data from hourly distribution (7 days)
 export const getJobsChartData = async (): Promise<Array<{ day: string; jobs: number; earnings: number }>> => {
@@ -1137,8 +1137,8 @@ export const getJobsChartData = async (): Promise<Array<{ day: string; jobs: num
     });
   }
 };
-export const getJobResult = (jobId: string) => apiClient.get(`/api/jobs/${jobId}/result`);
-export const cancelJob = (jobId: string) => apiClient.post(`/api/jobs/${jobId}/cancel`);
+export const getJobResult = (jobId: string) => apiClient.get(`/api/workers/job/${jobId}`);
+export const cancelJob = (jobId: string) => apiClient.post(`/api/workers/job/${jobId}/cancel`);
 export const retryJob = (jobId: string) => apiClient.post(`/api/jobs/${jobId}/retry`);
 export const archiveJob = (jobId: string) => apiClient.post(`/api/jobs/${jobId}/archive`);
 export const deleteJob = (jobId: string) => apiClient.delete(`/api/jobs/${jobId}`);
@@ -1157,7 +1157,7 @@ export const submitJob = (data: {
   max_cost_sage?: number;
   priority?: number;
   require_tee?: boolean;
-}) => apiClient.post<{ job_id: string; status: string; estimated_cost: string }>('/api/submit', data);
+}) => apiClient.post<{ job_id: string; status: string; estimated_cost: string }>('/api/workers/submit', data);
 
 // Proofs
 export const getProofs = (params?: {
@@ -1233,8 +1233,8 @@ export const getSagePrice = async (): Promise<TokenPrice> => {
 };
 
 // Workers
-export const getWorkers = () => apiClient.get<{ workers: GPUMetrics[] }>('/api/workers');
-export const getWorker = (workerId: string) => apiClient.get(`/api/workers/${workerId}`);
+export const getWorkers = () => apiClient.get<{ workers: GPUMetrics[] }>('/api/workers/gpu');
+export const getWorker = (workerId: string) => apiClient.get(`/api/workers/${workerId}/metrics`);
 
 // ============================================================================
 // Trading/OTC API Functions
@@ -1388,9 +1388,9 @@ export const generateStealthAddress = (address: string) =>
 // Earnings API Functions
 // ============================================================================
 
-// Get earnings summary
+// Get earnings summary (maps to coordinator GET /api/v1/billing/earnings?wallet=X)
 export const getEarningsSummary = (address: string) =>
-  apiClient.get<EarningsSummary>(`/api/earnings/${address}/summary`);
+  apiClient.get<EarningsSummary>('/api/billing/earnings', { params: { wallet: address } });
 
 // Get earnings history (paginated)
 export const getEarningsHistory = (address: string, params?: {
@@ -1399,16 +1399,16 @@ export const getEarningsHistory = (address: string, params?: {
   period?: string;
   page?: number;
   limit?: number;
-}) => apiClient.get<EarningsHistoryResponse>(`/api/earnings/${address}/history`, { params });
+}) => apiClient.get<EarningsHistoryResponse>(`/api/billing/earnings/${address}/history`, { params });
 
 // Get earnings chart data
 export const getEarningsChart = (address: string, params?: {
   period?: string; // 7d, 30d, 90d
-}) => apiClient.get<EarningsChartResponse>(`/api/earnings/${address}/chart`, { params });
+}) => apiClient.get<EarningsChartResponse>(`/api/billing/earnings/${address}/chart`, { params });
 
 // Get earnings breakdown by type
 export const getEarningsBreakdown = (address: string) =>
-  apiClient.get<EarningsByType[]>(`/api/earnings/${address}/breakdown`);
+  apiClient.get<EarningsByType[]>(`/api/billing/earnings/${address}/breakdown`);
 
 // Get combined wallet activity (transfers + earnings)
 export const getWalletActivity = async (address: string, limit = 20): Promise<WalletActivity[]> => {
