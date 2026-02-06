@@ -10,13 +10,9 @@
  * - Caching and optimistic updates
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type {
   AnalyticsData,
-  JobMetrics,
-  ProofMetrics,
-  NetworkMetrics,
-  EarningsMetrics,
 } from "@/components/analytics/AnalyticsDashboard";
 import {
   getJobDbAnalytics,
@@ -169,82 +165,6 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRes
     refresh,
     lastUpdated,
   };
-}
-
-// ============================================
-// Specialized Hooks
-// ============================================
-
-export function useJobAnalytics(timeRange: TimeRange = "24h") {
-  const { data, isLoading, error } = useAnalytics({ timeRange });
-
-  return useMemo(
-    () => ({
-      metrics: data?.jobs ?? null,
-      historical: data?.historical
-        ? {
-            timestamps: data.historical.timestamps,
-            values: data.historical.jobs,
-          }
-        : null,
-      isLoading,
-      error,
-    }),
-    [data, isLoading, error]
-  );
-}
-
-export function useProofAnalytics(timeRange: TimeRange = "24h") {
-  const { data, isLoading, error } = useAnalytics({ timeRange });
-
-  return useMemo(
-    () => ({
-      metrics: data?.proofs ?? null,
-      historical: data?.historical
-        ? {
-            timestamps: data.historical.timestamps,
-            values: data.historical.proofs,
-          }
-        : null,
-      isLoading,
-      error,
-    }),
-    [data, isLoading, error]
-  );
-}
-
-export function useNetworkAnalytics() {
-  const { data, isLoading, error, refresh } = useAnalytics({ refreshInterval: 10000 });
-
-  return useMemo(
-    () => ({
-      metrics: data?.network ?? null,
-      utilization: data?.historical?.utilization ?? [],
-      isLoading,
-      error,
-      refresh,
-    }),
-    [data, isLoading, error, refresh]
-  );
-}
-
-export function useEarningsAnalytics(timeRange: TimeRange = "30d") {
-  const { data, isLoading, error } = useAnalytics({ timeRange });
-
-  return useMemo(
-    () => ({
-      metrics: data?.earnings ?? null,
-      historical: data?.historical
-        ? {
-            timestamps: data.historical.timestamps,
-            values: data.historical.earnings,
-          }
-        : null,
-      isLoading,
-      error,
-    }),
-    [data, isLoading, error]
-  );
 }
 
 export type { TimeRange, UseAnalyticsOptions, UseAnalyticsResult };

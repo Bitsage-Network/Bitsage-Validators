@@ -154,17 +154,6 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-// Default chart data (fallback)
-const defaultChartData = [
-  { day: "Mon", jobs: 18, earnings: 15.5 },
-  { day: "Tue", jobs: 24, earnings: 22.3 },
-  { day: "Wed", jobs: 12, earnings: 10.8 },
-  { day: "Thu", jobs: 32, earnings: 28.5 },
-  { day: "Fri", jobs: 28, earnings: 25.2 },
-  { day: "Sat", jobs: 15, earnings: 12.4 },
-  { day: "Sun", jobs: 22, earnings: 18.9 },
-];
-
 const JOBS_PER_PAGE = 10;
 
 // Sorting types
@@ -300,9 +289,9 @@ export default function JobsPage() {
   });
   const { latestJobUpdate, jobUpdates: realtimeJobUpdates } = useRealtimeJobUpdates();
 
-  // Chart data with fallback and tracking
-  const chartData = apiChartData || defaultChartData;
-  const isUsingFallbackChart = !apiChartData && !isLoading;
+  // Chart data from coordinator API
+  const chartData = apiChartData || [];
+  const isUsingFallbackChart = false;
 
   // Loading states
   const loadingJobs = isLoading;
@@ -739,11 +728,6 @@ export default function JobsPage() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-semibold text-white">Jobs This Week</h3>
-                {isUsingFallbackChart && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
-                    Sample Data
-                  </span>
-                )}
               </div>
               <div className="flex gap-2">
                 {["24h", "7d", "30d", "all"].map((filter) => (

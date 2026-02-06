@@ -12,8 +12,6 @@ import {
   getWorkerStatus,
   getJobs,
   getJobStatus,
-  getProofs,
-  getProof,
   getNetworkStats,
   getFaucetStatus,
   getFaucetConfig,
@@ -29,7 +27,6 @@ import {
   ValidatorStatus,
   GPUMetrics,
   JobInfo,
-  ProofInfo,
   NetworkStats,
   FaucetStatus,
   FaucetConfig,
@@ -353,37 +350,6 @@ export function useCancelJob() {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
     },
-  });
-}
-
-// ============================================================================
-// Proofs Hooks
-// ============================================================================
-
-export function useProofs(params?: {
-  page?: number;
-  per_page?: number;
-  status?: string;
-}) {
-  return useQuery({
-    queryKey: ['proofs', params],
-    queryFn: async () => {
-      const response = await getProofs(params);
-      return response.data;
-    },
-    refetchInterval: 10000,
-    staleTime: 5000,
-  });
-}
-
-export function useProof(proofId: string) {
-  return useQuery({
-    queryKey: ['proof', proofId],
-    queryFn: async () => {
-      const response = await getProof(proofId);
-      return response.data;
-    },
-    enabled: !!proofId,
   });
 }
 

@@ -699,10 +699,6 @@ export const getSavedContacts = (address: string) =>
 export const saveContact = (address: string, data: { name: string; contact_address: string }) =>
   apiClient.post<SavedContact>(`/api/wallet/${address}/contacts`, data);
 
-// Delete a saved contact
-export const deleteContact = (address: string, contactId: string) =>
-  apiClient.delete(`/api/wallet/${address}/contacts/${contactId}`);
-
 // Get multi-asset balances
 export const getMultiAssetBalances = (address: string) =>
   apiClient.get<MultiAssetBalancesResponse>(`/api/wallet/${address}/balances`);
@@ -726,7 +722,6 @@ export interface WalletActivity {
 
 // Health & Stats
 export const getHealth = () => apiClient.get('/health');
-export const getStats = () => apiClient.get<NetworkStats>('/api/stats');
 export const getNetworkStats = () => apiClient.get<NetworkStats>('/api/network/stats');
 
 // Validator
@@ -1183,16 +1178,6 @@ export const submitJob = (data: {
   require_tee?: boolean;
 }) => apiClient.post<{ job_id: string; status: string; estimated_cost: string }>('/api/submit', data);
 
-// Proofs
-export const getProofs = (params?: {
-  page?: number;
-  per_page?: number;
-  status?: string;
-}) => apiClient.get<{ proofs: ProofInfo[]; total: number }>('/api/proofs', { params });
-
-export const getProof = (proofId: string) => apiClient.get<ProofInfo>(`/api/proofs/${proofId}`);
-export const verifyProof = (proofHash: string) => apiClient.post(`/api/proofs/${proofHash}/verify`);
-
 // Faucet
 export const getFaucetStatus = (address: string) =>
   apiClient.get<FaucetStatus>(`/api/faucet/status/${address}`);
@@ -1255,10 +1240,6 @@ export const getSagePrice = async (): Promise<TokenPrice> => {
     };
   }
 };
-
-// Workers
-export const getWorkers = () => apiClient.get<{ workers: GPUMetrics[] }>('/api/workers');
-export const getWorker = (workerId: string) => apiClient.get(`/api/workers/${workerId}`);
 
 // ============================================================================
 // Trading/OTC API Functions
