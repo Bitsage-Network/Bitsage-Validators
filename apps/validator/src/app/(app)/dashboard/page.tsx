@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useRecentJobsFromDb, useDashboardDbStats } from "@/lib/hooks/useApiData";
+import type { JobDbRecord } from "@/lib/api/client";
 import { ErrorBoundary } from "@/components/error/ErrorBoundary";
 import { ActivityFeed, useActivityFeed, type ActivityItem } from "@/components/activity/ActivityFeed";
 import { QuickReference } from "@/components/help/KeyboardShortcutsModal";
@@ -123,7 +124,7 @@ export default function DashboardPage() {
   // Convert jobs to activity items when they change
   useEffect(() => {
     if (recentJobs && recentJobs.length > 0) {
-      recentJobs.forEach((job: any) => {
+      recentJobs.forEach((job: JobDbRecord) => {
         const activityType = job.status === 'completed'
           ? 'job_completed'
           : job.status === 'failed'
@@ -526,13 +527,12 @@ export default function DashboardPage() {
               animate={{ opacity: 1 }}
               className="divide-y divide-surface-border"
             >
-            {recentJobs.map((job: any) => {
+            {recentJobs.map((job: JobDbRecord) => {
               const jobStatus = job.status.toLowerCase();
               const status = statusConfig[jobStatus as keyof typeof statusConfig] || statusConfig.pending;
               const isCompleted = jobStatus === 'completed';
-              // Handle both SDK (duration_ms, reward) and DB (execution_time_ms, payment_amount) formats
-              const durationMs = job.duration_ms ?? job.execution_time_ms;
-              const reward = job.reward ?? (job.payment_amount ? BigInt(job.payment_amount) : null);
+              const durationMs = job.execution_time_ms;
+              const reward = job.payment_amount ? BigInt(job.payment_amount) : null;
               return (
                 <div
                   key={job.job_id}

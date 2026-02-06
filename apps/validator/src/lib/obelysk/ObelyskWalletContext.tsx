@@ -242,20 +242,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         // Get unspent notes from IndexedDB
         const notes = await getUnspentNotes(address);
 
-        console.log("[ObelyskWallet] Found", notes.length, "notes in IndexedDB for address:", address?.slice(0, 10) + "...");
-        if (notes.length > 0) {
-          notes.forEach((n, i) => {
-            console.log(`[ObelyskWallet] Note ${i + 1}:`, {
-              denomination: n.denomination,
-              commitment: n.commitment?.slice(0, 16) + "...",
-              spent: n.spent,
-              depositTxHash: n.depositTxHash?.slice(0, 16) + "...",
-            });
-          });
-        }
-
         if (notes.length === 0) {
-          console.log("[ObelyskWallet] No notes found in IndexedDB - either never deposited or data was cleared");
           setPrivacyPoolBalance(0);
           setStaleNotesCount(0);
           setLocalNotesBalance(0);
@@ -292,7 +279,6 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         verifiedBalance = results.filter(r => r.verified).reduce((sum, r) => sum + r.amount, 0);
         staleCount = results.filter(r => !r.verified).length;
 
-        console.log("[ObelyskWallet] Privacy Pool balance (verified):", verifiedBalance, "from", notes.length, "notes,", staleCount, "stale");
         setPrivacyPoolBalance(verifiedBalance);
         setStaleNotesCount(staleCount);
       } catch (error) {
@@ -321,14 +307,12 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         if (!response.ok || !(await response.json()).found) {
           await deleteNote(note.commitment);
           cleared++;
-          console.log("[ObelyskWallet] Cleared stale note:", note.commitment.slice(0, 16) + "...");
         }
       } catch {
         // Keep note if API unavailable
       }
     }
 
-    console.log("[ObelyskWallet] Cleared", cleared, "stale notes");
     setStaleNotesCount(0);
     // Trigger balance refresh
     setPrivacyPoolBalance(0);
@@ -404,25 +388,15 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
     decryptedNotes: DecryptedNote[];
     publicKey: ECPoint;
   }> => {
-    console.log("[ObelyskWallet] Starting ElGamal reveal process...");
-
     try {
       // Initialize keys if they don't exist
       if (!hasLocalKeys) {
-        console.log("[ObelyskWallet] No keys found, initializing...");
         await initLocalKeys();
       }
 
       // Perform full ElGamal decryption - this triggers wallet signature popup
       // and returns cryptographic proof of decryption
-      console.log("[ObelyskWallet] Requesting wallet signature for ElGamal decryption...");
       const result = await revealWithDecryption();
-
-      console.log("[ObelyskWallet] ElGamal decryption complete:", {
-        totalBalance: result.totalBalance.toString(),
-        noteCount: result.decryptedNotes.length,
-        publicKey: `0x${result.publicKey.x.toString(16).slice(0, 16)}...`,
-      });
 
       // Store the decryption result for UI display
       setDecryptionResult({
@@ -621,7 +595,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         setTransactions(prev => [newTx, ...prev]);
 
         // Update decrypted balance
-        if (decryptedPrivateBalance) {
+        if (decryptedPrivateBalance !== null) {
           setDecryptedPrivateBalance(decryptedPrivateBalance - amountBigInt);
         }
       } else {
@@ -645,8 +619,8 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         //   ... update state with real tx data ...
 
         // Update decrypted balance
-        if (decryptedPrivateBalance) {
-          setDecryptedPrivateBalance(decryptedPrivateBalance - amountBigInt);
+        if (decryptedPrivateBalance !== null) {
+          setDecryptedPrivateBalance(decryptedPrivateBalance! - amountBigInt);
         }
       }
     } catch (error) {

@@ -274,17 +274,6 @@ export function logEnvConfig(): void {
     return;
   }
 
-  console.log('[ENV] Configuration loaded:', {
-    network: config.network,
-    apiUrl: config.apiUrl,
-    wsUrl: config.wsUrl,
-    rpcUrl: config.rpcUrl.slice(0, 30) + '...',
-    isDevnet: config.isDevnet,
-    isProduction: config.isProduction,
-    contractsConfigured: Object.values(config.contracts).every(
-      (addr) => addr && addr !== '0x0'
-    ),
-  });
 }
 
 // Export singleton config

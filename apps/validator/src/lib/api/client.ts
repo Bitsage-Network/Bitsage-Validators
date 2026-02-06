@@ -15,13 +15,8 @@ export { retryQueue };
 const API_BASE_URL = getConfig().apiUrl;
 const WS_URL = getConfig().wsUrl;
 
-// Debug logging - only enabled in development
-const IS_DEV = process.env.NODE_ENV === 'development';
-const debugLog = (message: string, ...args: unknown[]) => {
-  if (IS_DEV) {
-    console.log(message, ...args);
-  }
-};
+// Debug logging - no-op to keep callers working without console output
+const debugLog = (_message: string, ..._args: unknown[]) => {};
 
 // Create axios instance with defaults
 export const apiClient: AxiosInstance = axios.create({
@@ -1125,23 +1120,21 @@ export const getJobsChartData = async (): Promise<Array<{ day: string; jobs: num
 
       chartData.push({
         day: dayName,
-        jobs: dayJobs > 0 ? dayJobs : Math.floor(Math.random() * 20 + 10), // Fallback with random if no data
-        earnings: dayJobs * avgEarningsPerJob || Math.random() * 20 + 5,
+        jobs: dayJobs,
+        earnings: dayJobs * avgEarningsPerJob,
       });
     }
 
     return chartData;
   } catch {
-    // Fallback to mock data if API unavailable
-    return [
-      { day: "Mon", jobs: 18, earnings: 15.5 },
-      { day: "Tue", jobs: 24, earnings: 22.3 },
-      { day: "Wed", jobs: 12, earnings: 10.8 },
-      { day: "Thu", jobs: 32, earnings: 28.5 },
-      { day: "Fri", jobs: 28, earnings: 25.2 },
-      { day: "Sat", jobs: 22, earnings: 19.8 },
-      { day: "Sun", jobs: 15, earnings: 13.2 },
-    ];
+    // Return empty data when API is unavailable
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const today = new Date();
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(today);
+      date.setDate(date.getDate() - (6 - i));
+      return { day: days[date.getDay()], jobs: 0, earnings: 0 };
+    });
   }
 };
 export const getJobResult = (jobId: string) => apiClient.get(`/api/jobs/${jobId}/result`);
@@ -1225,24 +1218,22 @@ export const getSagePrice = async (): Promise<TokenPrice> => {
   try {
     const response = await getTokenPrice('SAGE');
     return response.data;
-  } catch (error) {
-    // Return fallback price if API unavailable
-    console.warn('[PriceFeed] Failed to fetch SAGE price, using fallback');
+  } catch {
     return {
       token: 'SAGE',
       symbol: 'SAGE',
-      price_usd: 4.55,
+      price_usd: 0,
       price_change_24h: 0,
       price_change_pct_24h: 0,
       volume_24h: 0,
       last_updated: new Date().toISOString(),
-      source: 'fallback',
+      source: 'fallback' as const,
     };
   }
 };
 
 // Workers
-export const getWorkers = () => apiClient.get<{ workers: any[] }>('/api/workers');
+export const getWorkers = () => apiClient.get<{ workers: GPUMetrics[] }>('/api/workers');
 export const getWorker = (workerId: string) => apiClient.get(`/api/workers/${workerId}`);
 
 // ============================================================================
@@ -1489,7 +1480,7 @@ export const getWalletActivity = async (address: string, limit = 20): Promise<Wa
 // Legacy message types (for backward compatibility)
 export interface WebSocketMessage {
   type: 'job_update' | 'proof_update' | 'worker_status' | 'network_stats';
-  data: any;
+  data: Record<string, unknown>;
   timestamp: string;
 }
 
@@ -1511,7 +1502,7 @@ export type WsEventType =
 
 export interface IndexedWebSocketMessage {
   type: WsEventType;
-  data: any;
+  data: Record<string, unknown>;
   timestamp: string;
 }
 

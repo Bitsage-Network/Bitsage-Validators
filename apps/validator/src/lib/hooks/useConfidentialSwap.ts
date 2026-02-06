@@ -443,14 +443,10 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
       balance,
       randomness,
     }: ProofBundleParams): Promise<SwapProofBundle> => {
-      console.log("[ConfidentialSwap] Generating proof bundle...");
-
       const giveRangeProof = generateRangeProof(giveAmount, randomness);
       const wantRangeProof = generateRangeProof(wantAmount, randomness);
       const rateProof = generateRateProof(giveAmount, wantAmount, randomness);
       const balanceProof = generateBalanceProof(balance, giveAmount, randomness);
-
-      console.log("[ConfidentialSwap] Proof bundle generated");
 
       return {
         giveRangeProof,
@@ -481,13 +477,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
       setState((s) => ({ ...s, isLoading: true, error: null }));
 
       try {
-        console.log("[ConfidentialSwap] Creating order:", {
-          giveAsset,
-          wantAsset,
-          giveAmount: giveAmount.toString(),
-          wantAmount: wantAmount.toString(),
-        });
-
         // Load user's privacy keypair
         const keyPair = await unlockKeys();
         if (!keyPair) {
@@ -547,11 +536,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         const response = await sendAsync([call]);
-        console.log("[ConfidentialSwap] Order created, tx:", response.transaction_hash);
-
-        // Store AE hints locally for later decryption
-        // In production, store in IndexedDB
-        console.log("[ConfidentialSwap] AE hints stored for O(1) decryption");
 
         setState((s) => ({ ...s, isLoading: false }));
 
@@ -585,7 +569,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         await sendAsync([call]);
-        console.log("[ConfidentialSwap] Order cancelled:", orderId);
 
         setState((s) => ({ ...s, isLoading: false }));
       } catch (error) {
@@ -703,7 +686,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         const response = await sendAsync([call]);
-        console.log("[ConfidentialSwap] Direct swap executed, tx:", response.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
         return 1n; // Placeholder match ID
@@ -793,7 +775,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         const response = await sendAsync([call]);
-        console.log("[ConfidentialSwap] Match executed, tx:", response.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
         return 1n;
@@ -861,7 +842,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         await sendAsync([call]);
-        console.log("[ConfidentialSwap] Deposit successful:", amount.toString(), asset);
 
         setState((s) => ({ ...s, isLoading: false }));
       } catch (error) {
@@ -919,7 +899,6 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         };
 
         await sendAsync([call]);
-        console.log("[ConfidentialSwap] Withdrawal successful:", amount.toString(), asset);
 
         setState((s) => ({ ...s, isLoading: false }));
       } catch (error) {

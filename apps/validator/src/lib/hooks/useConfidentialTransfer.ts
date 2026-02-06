@@ -217,7 +217,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
       // Check if already registered on-chain
       const registered = await isRegistered();
       if (registered) {
-        console.log("[ConfidentialTransfer] Already registered on-chain");
         setState((s) => ({ ...s, isLoading: false, isRegistered: true }));
         return;
       }
@@ -225,7 +224,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
       // Initialize or unlock privacy keys using usePrivacyKeys hook
       let userPublicKey = publicKey;
       if (!hasKeys) {
-        console.log("[ConfidentialTransfer] Initializing privacy keys...");
         await initializeKeys();
         // Wait for keys to be available
         const keyPair = await unlockKeys();
@@ -234,7 +232,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         }
         userPublicKey = keyPair.publicKey;
       } else if (!userPublicKey) {
-        console.log("[ConfidentialTransfer] Unlocking existing keys...");
         const keyPair = await unlockKeys();
         if (!keyPair) {
           throw new Error("Failed to unlock privacy keys");
@@ -252,8 +249,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         y: "0x" + userPublicKey.y.toString(16),
       };
 
-      console.log("[ConfidentialTransfer] Registering public key:", pkCalldata);
-
       const tx = await sendAsync([
         {
           contractAddress: CONFIDENTIAL_TRANSFER_ADDRESS,
@@ -262,7 +257,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         },
       ]);
 
-      console.log("[ConfidentialTransfer] Register TX:", tx.transaction_hash);
       await provider.waitForTransaction(tx.transaction_hash);
 
       setState((s) => ({ ...s, isLoading: false, isRegistered: true }));
@@ -297,8 +291,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         // Create AE hint for O(1) decryption
         const aeHint = createAEHintFromRandomness(amount, randomness, keyPair.publicKey);
 
-        console.log("[ConfidentialTransfer] Funding:", { asset, amount: amount.toString() });
-
         // First approve token transfer
         const tokenAddress = getTokenAddress(asset);
         const approveTx = await sendAsync([
@@ -328,7 +320,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Fund TX:", tx.transaction_hash);
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -409,8 +400,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         const senderHint = createAEHintFromRandomness(currentBalance - amount, randomness, keyPair.publicKey);
         const receiverHint = createAEHintFromRandomness(amount, randomness, receiverPk);
 
-        console.log("[ConfidentialTransfer] Transferring:", { to, asset, amount: amount.toString() });
-
         const tx = await sendAsync([
           {
             contractAddress: CONFIDENTIAL_TRANSFER_ADDRESS,
@@ -428,7 +417,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Transfer TX:", tx.transaction_hash);
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -462,7 +450,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Rollover TX:", tx.transaction_hash);
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -505,8 +492,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           randomness
         );
 
-        console.log("[ConfidentialTransfer] Withdrawing:", { to, asset, amount: amount.toString() });
-
         const tx = await sendAsync([
           {
             contractAddress: CONFIDENTIAL_TRANSFER_ADDRESS,
@@ -520,7 +505,6 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Withdraw TX:", tx.transaction_hash);
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));

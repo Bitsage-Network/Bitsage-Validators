@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PrivacyModeToggle } from "@/components/privacy/PrivacyToggle";
 import { useProofDetail } from "@/lib/hooks/useApiData";
-import type { ProofDetail } from "@/lib/api/client";
+import type { ProofDetail, ProofExecutionPhase } from "@/lib/api/client";
 import {
   CIRCUIT_REGISTRY,
   getCircuitColor,
@@ -49,7 +49,7 @@ import {
 } from "@/lib/proofs/circuitRegistry";
 
 // Transform API response to component format (snake_case -> camelCase)
-function transformProofDetail(data: ProofDetail): any {
+function transformProofDetail(data: ProofDetail) {
   return {
     id: data.id,
     jobId: data.job_id,
@@ -625,7 +625,7 @@ export default function ProofDetailPage() {
                     <p className="text-xs text-gray-500 mb-2">Preview</p>
                     {proof.output.preview.topPredictions && (
                       <div className="space-y-2">
-                        {proof.output.preview.topPredictions.map((pred: any, i: number) => (
+                        {proof.output.preview.topPredictions.map((pred: { class: string; confidence: number }, i: number) => (
                           <div key={i} className="flex items-center justify-between">
                             <span className="text-sm text-gray-300">{pred.class}</span>
                             <div className="flex items-center gap-2">
@@ -785,8 +785,8 @@ export default function ProofDetailPage() {
               {/* First Layer Commitment (first_layer.commitment in FriProof) */}
               <HashField
                 label="First Layer Commitment"
-                value={proof.proofComponents.firstLayerCommitment || proof.proofComponents.commitment}
-                onCopy={() => copyToClipboard(proof.proofComponents.firstLayerCommitment || proof.proofComponents.commitment, "commitment")}
+                value={proof.proofComponents.firstLayerCommitment || ""}
+                onCopy={() => copyToClipboard(proof.proofComponents.firstLayerCommitment || "", "commitment")}
                 copied={copiedField === "commitment"}
               />
               
@@ -897,19 +897,19 @@ export default function ProofDetailPage() {
                 <HashField
                   label="Enclave ID"
                   value={proof.teeAttestation.enclaveId}
-                  onCopy={() => copyToClipboard(proof.teeAttestation.enclaveId, "enclave")}
+                  onCopy={() => copyToClipboard(proof.teeAttestation!.enclaveId, "enclave")}
                   copied={copiedField === "enclave"}
                 />
                 <HashField
                   label="MR Enclave"
                   value={proof.teeAttestation.mrEnclave}
-                  onCopy={() => copyToClipboard(proof.teeAttestation.mrEnclave, "mrenclave")}
+                  onCopy={() => copyToClipboard(proof.teeAttestation!.mrEnclave, "mrenclave")}
                   copied={copiedField === "mrenclave"}
                 />
                 <HashField
                   label="MR Signer"
                   value={proof.teeAttestation.mrSigner}
-                  onCopy={() => copyToClipboard(proof.teeAttestation.mrSigner, "mrsigner")}
+                  onCopy={() => copyToClipboard(proof.teeAttestation!.mrSigner, "mrsigner")}
                   copied={copiedField === "mrsigner"}
                 />
               </div>
@@ -978,7 +978,7 @@ export default function ProofDetailPage() {
               Execution Timeline
             </h3>
             <div className="space-y-3">
-              {proof.executionPhases.map((phase: any, i: number) => (
+              {proof.executionPhases.map((phase: ProofExecutionPhase, i: number) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className={cn(
                     "w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0",

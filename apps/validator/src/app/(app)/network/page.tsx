@@ -93,10 +93,9 @@ export default function NetworkPage() {
     const rawStats = streamedStats || networkStats;
     if (!rawStats) return null;
 
-    // Unwrap if SDK event format with nested data - use unknown to avoid type conflicts
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = rawStats as any;
-    const baseStats: NetworkStatsBase = raw.data ?? raw;
+    // Unwrap if SDK event format with nested data
+    const raw = rawStats as unknown as Record<string, unknown>;
+    const baseStats: NetworkStatsBase = (raw.data as NetworkStatsBase) ?? (raw as unknown as NetworkStatsBase);
 
     return {
       totalValidators: baseStats.total_workers ?? baseStats.totalWorkers ?? baseStats.totalValidators ?? 0,
@@ -120,11 +119,10 @@ export default function NetworkPage() {
 
   // Calculate GPU distribution from workers data
   const gpuDistribution = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawWorkers: any = workersData;
+    const rawWorkers = workersData as WorkerData[] | { workers?: WorkerData[] } | undefined;
     const workers: WorkerData[] | undefined = Array.isArray(rawWorkers)
       ? rawWorkers
-      : rawWorkers?.workers;
+      : (rawWorkers as { workers?: WorkerData[] })?.workers;
     if (!workers || !Array.isArray(workers)) return [];
 
     const gpuCounts: Record<string, number> = {};
@@ -164,11 +162,10 @@ export default function NetworkPage() {
 
   // Format leaderboard data
   const topValidators = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawLeaderboard: any = leaderboardData;
+    const rawLeaderboard = leaderboardData as LeaderboardWorker[] | { workers?: LeaderboardWorker[] } | undefined;
     const workers: LeaderboardWorker[] | undefined = Array.isArray(rawLeaderboard)
       ? rawLeaderboard
-      : rawLeaderboard?.workers;
+      : (rawLeaderboard as { workers?: LeaderboardWorker[] })?.workers;
     if (!workers || !Array.isArray(workers)) return [];
     return workers.slice(0, 5).map((worker: LeaderboardWorker, idx: number): TopValidator => {
       const addr = worker.address || worker.worker_address || worker.id || "";
