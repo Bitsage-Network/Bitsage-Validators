@@ -12,15 +12,34 @@ import {
   Check,
   AlertCircle,
   Square,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useWorkloadDeployment } from "@/lib/hooks/useWorkloadDeployment";
 import { WorkerStatusBanner } from "@/components/workloads/WorkerStatusBanner";
 import { DeploymentProgressModal } from "@/components/workloads/DeploymentProgressModal";
+import { SkeletonCard } from "@/components/ui/Skeleton";
+import { getWorkloads, type WorkloadCategory } from "@/lib/api/client";
+import type { LucideIcon } from "lucide-react";
 
-// Workload data (matches backend workload_types.rs)
-const workloads = [
+// UI-only fields the API doesn't return
+interface WorkloadRegistryEntry {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  icon: LucideIcon;
+  color: string;
+  bg: string;
+  verified: boolean;
+  minVramGb: number;
+  tags: string[];
+}
+
+// Static workload registry (fallback + UI overlay data)
+const WORKLOAD_REGISTRY: WorkloadRegistryEntry[] = [
   {
     id: "qwen-2.5",
     name: "Qwen 2.5",
@@ -119,6 +138,28 @@ const workloads = [
   },
 ];
 
+// Map API categories to local filter categories
+const API_CATEGORY_MAP: Record<WorkloadCategory, string> = {
+  ai_inference: "ai",
+  zk_prover: "compute",
+  creative: "creative",
+  blockchain: "infra",
+};
+
+// Default UI props for workloads not in the registry
+function getDefaultUI(category: string): Pick<WorkloadRegistryEntry, "icon" | "color" | "bg"> {
+  switch (category) {
+    case "ai": return { icon: Brain, color: "text-purple-400", bg: "bg-purple-500/20" };
+    case "compute": return { icon: Cpu, color: "text-cyan-400", bg: "bg-cyan-500/20" };
+    case "creative": return { icon: Brain, color: "text-pink-400", bg: "bg-pink-500/20" };
+    case "infra": return { icon: Server, color: "text-emerald-400", bg: "bg-emerald-500/20" };
+    default: return { icon: Cpu, color: "text-gray-400", bg: "bg-gray-500/20" };
+  }
+}
+
+// Build the registry lookup once
+const registryById = new Map(WORKLOAD_REGISTRY.map((w) => [w.id, w]));
+
 const categories = [
   { id: "all", name: "All Workloads", icon: Zap },
   { id: "ai", name: "AI Models", icon: Brain },
@@ -133,6 +174,43 @@ export default function WorkloadsPage() {
   const [sortBy, setSortBy] = useState<"name">("name");
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [selectedWorkloadName, setSelectedWorkloadName] = useState("");
+
+  // Fetch workloads from API, fall back to static registry
+  const { data: apiWorkloads, isLoading: loadingWorkloads } = useQuery({
+    queryKey: ["workloads"],
+    queryFn: async () => {
+      const r = await getWorkloads();
+      return r.data?.workloads || [];
+    },
+    staleTime: 300_000, // 5 min
+    retry: 1, // Don't hammer a 404
+  });
+
+  // Merge API workloads with registry UI data, or fall back to registry
+  const workloads: WorkloadRegistryEntry[] = useMemo(() => {
+    if (!apiWorkloads || apiWorkloads.length === 0) {
+      return WORKLOAD_REGISTRY;
+    }
+
+    return apiWorkloads.map((apiW) => {
+      const registry = registryById.get(apiW.id);
+      const localCategory = API_CATEGORY_MAP[apiW.category] || apiW.category;
+      const defaults = getDefaultUI(localCategory);
+
+      return {
+        id: apiW.id,
+        name: registry?.name ?? apiW.name,
+        category: localCategory,
+        description: registry?.description ?? apiW.description,
+        icon: registry?.icon ?? defaults.icon,
+        color: registry?.color ?? defaults.color,
+        bg: registry?.bg ?? defaults.bg,
+        verified: apiW.verified,
+        minVramGb: apiW.min_vram_gb,
+        tags: registry?.tags ?? apiW.tags,
+      };
+    });
+  }, [apiWorkloads]);
 
   // Use the workload deployment hook
   const {
@@ -168,7 +246,7 @@ export default function WorkloadsPage() {
         }
         return 0;
       });
-  }, [searchQuery, selectedCategory, sortBy]);
+  }, [workloads, searchQuery, selectedCategory, sortBy]);
 
   // Get the active workload (if any worker is running one)
   const runningWorkloadId = myWorkers.find(w => w.active_workload)?.active_workload;
@@ -269,124 +347,135 @@ export default function WorkloadsPage() {
         })}
       </div>
 
-      {/* Workload Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredWorkloads.map((workload, idx) => {
-          const Icon = workload.icon;
-          const isRunning = runningWorkloadId === workload.id;
-          const canDeployThis = canDeploy(workload.minVramGb);
-          const insufficientMessage = getInsufficientVramMessage(workload.minVramGb);
-          const isDisabled = !hasConnectedWorker || !canDeployThis || isDeploying;
+      {/* Loading Skeleton */}
+      {loadingWorkloads && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      )}
 
-          return (
-            <motion.div
-              key={workload.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className={cn(
-                "glass-card overflow-hidden group",
-                isRunning && "ring-2 ring-blue-500/50"
-              )}
-            >
-              {/* Header */}
-              <div className="p-4 border-b border-surface-border/50">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={cn("p-2.5 rounded-xl", workload.bg)}>
-                      <Icon className={cn("w-5 h-5", workload.color)} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">{workload.name}</h3>
-                        {workload.verified && (
-                          <div className="p-0.5 rounded-full bg-emerald-500/20">
-                            <Check className="w-3 h-3 text-emerald-400" />
-                          </div>
+      {/* Workload Grid */}
+      {!loadingWorkloads && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredWorkloads.map((workload, idx) => {
+            const Icon = workload.icon;
+            const isRunning = runningWorkloadId === workload.id;
+            const canDeployThis = canDeploy(workload.minVramGb);
+            const insufficientMessage = getInsufficientVramMessage(workload.minVramGb);
+            const isDisabled = !hasConnectedWorker || !canDeployThis || isDeploying;
+
+            return (
+              <motion.div
+                key={workload.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                className={cn(
+                  "glass-card overflow-hidden group",
+                  isRunning && "ring-2 ring-blue-500/50"
+                )}
+              >
+                {/* Header */}
+                <div className="p-4 border-b border-surface-border/50">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={cn("p-2.5 rounded-xl", workload.bg)}>
+                        <Icon className={cn("w-5 h-5", workload.color)} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-white">{workload.name}</h3>
+                          {workload.verified && (
+                            <div className="p-0.5 rounded-full bg-emerald-500/20">
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            </div>
+                          )}
+                        </div>
+                        {isRunning && (
+                          <span className="text-xs text-blue-400">Running</span>
                         )}
                       </div>
-                      {isRunning && (
-                        <span className="text-xs text-blue-400">Running</span>
-                      )}
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Body */}
-              <div className="p-4">
-                <p className="text-sm text-gray-400 line-clamp-2 mb-4">
-                  {workload.description}
-                </p>
+                {/* Body */}
+                <div className="p-4">
+                  <p className="text-sm text-gray-400 line-clamp-2 mb-4">
+                    {workload.description}
+                  </p>
 
-                {/* Tags */}
-                <div className="flex flex-wrap gap-1.5 mb-4">
-                  {workload.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-2 py-0.5 rounded bg-surface-elevated text-xs text-gray-400"
+                  {/* Tags */}
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {workload.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2 py-0.5 rounded bg-surface-elevated text-xs text-gray-400"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Stats */}
+                  <div className="mb-4">
+                    <div className="p-2 rounded-lg bg-surface-elevated/50">
+                      <p className="text-xs text-gray-500">Min VRAM</p>
+                      <p className="text-sm font-medium text-white">{workload.minVramGb}GB</p>
+                    </div>
+                  </div>
+
+                  {/* Insufficient VRAM Warning */}
+                  {hasConnectedWorker && insufficientMessage && (
+                    <div className="mb-3 p-2 rounded-lg bg-amber-900/20 border border-amber-800/30">
+                      <p className="text-xs text-amber-400">{insufficientMessage}</p>
+                    </div>
+                  )}
+
+                  {/* Deploy / Stop Button */}
+                  {isRunning ? (
+                    <button
+                      onClick={handleStop}
+                      className="w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white"
                     >
-                      {tag}
-                    </span>
-                  ))}
+                      <Square className="w-4 h-4" />
+                      Stop Workload
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDeploy(workload.id, workload.name)}
+                      disabled={isDisabled}
+                      className={cn(
+                        "w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2",
+                        isDisabled
+                          ? "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                      )}
+                    >
+                      {isDeploying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Deploying...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4" />
+                          Deploy to GPU
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
-
-                {/* Stats */}
-                <div className="mb-4">
-                  <div className="p-2 rounded-lg bg-surface-elevated/50">
-                    <p className="text-xs text-gray-500">Min VRAM</p>
-                    <p className="text-sm font-medium text-white">{workload.minVramGb}GB</p>
-                  </div>
-                </div>
-
-                {/* Insufficient VRAM Warning */}
-                {hasConnectedWorker && insufficientMessage && (
-                  <div className="mb-3 p-2 rounded-lg bg-amber-900/20 border border-amber-800/30">
-                    <p className="text-xs text-amber-400">{insufficientMessage}</p>
-                  </div>
-                )}
-
-                {/* Deploy / Stop Button */}
-                {isRunning ? (
-                  <button
-                    onClick={handleStop}
-                    className="w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white"
-                  >
-                    <Square className="w-4 h-4" />
-                    Stop Workload
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleDeploy(workload.id, workload.name)}
-                    disabled={isDisabled}
-                    className={cn(
-                      "w-full py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2",
-                      isDisabled
-                        ? "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                        : "bg-emerald-600 hover:bg-emerald-500 text-white"
-                    )}
-                  >
-                    {isDeploying ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Deploying...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Deploy to GPU
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Empty State */}
-      {filteredWorkloads.length === 0 && (
+      {!loadingWorkloads && filteredWorkloads.length === 0 && (
         <div className="text-center py-12">
           <Cpu className="w-12 h-12 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400">No workloads found matching your criteria</p>

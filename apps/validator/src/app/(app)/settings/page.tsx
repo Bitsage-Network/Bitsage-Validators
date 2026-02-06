@@ -24,6 +24,7 @@ import {
   Eye,
   Info,
   Sliders,
+  Download,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -34,10 +35,12 @@ import {
   useIsValidator,
   useValidatorInfo,
 } from "@/lib/contracts";
+import { usePrivacyKeys } from "@/lib/hooks/usePrivacyKeys";
 
 export default function SettingsPage() {
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
+  const { publicKey, hasKeys } = usePrivacyKeys();
   const [copied, setCopied] = useState(false);
   const [commissionBps, setCommissionBps] = useState(500); // 5% default
   const [regTxHash, setRegTxHash] = useState<string | null>(null);
@@ -146,6 +149,33 @@ export default function SettingsPage() {
     disconnect();
     window.location.href = "/connect";
   };
+
+  const handleExportDetectionKey = useCallback(() => {
+    if (!publicKey || !address) {
+      alert("No detection key available. Initialize privacy keys first from the Obelysk page.");
+      return;
+    }
+
+    const payload = {
+      type: "bitsage-detection-key",
+      version: 1,
+      publicKey: {
+        x: "0x" + publicKey.x.toString(16),
+        y: "0x" + publicKey.y.toString(16),
+      },
+      address,
+      fmdPrecision,
+      exportedAt: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bitsage-detection-key-${address.slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [publicKey, address, fmdPrecision]);
 
   const formatAddress = (addr: string) => `${addr.slice(0, 10)}...${addr.slice(-8)}`;
 
@@ -590,14 +620,25 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <Key className="w-4 h-4 text-emerald-400" />
                   <p className="font-medium text-white">Detection Key</p>
+                  <span className={cn(
+                    "text-xs px-2 py-0.5 rounded-full",
+                    hasKeys
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : "bg-gray-500/20 text-gray-400"
+                  )}>
+                    {hasKeys ? "Key available" : "No key"}
+                  </span>
                 </div>
                 <p className="text-sm text-gray-400">
                   Export for third-party scanning services
                 </p>
               </div>
               <button
-                className="px-4 py-2 rounded-lg bg-surface-card border border-surface-border hover:border-emerald-500/50 transition-colors text-white text-sm font-medium"
+                onClick={handleExportDetectionKey}
+                disabled={!hasKeys}
+                className="px-4 py-2 rounded-lg bg-surface-card border border-surface-border hover:border-emerald-500/50 transition-colors text-white text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-surface-border"
               >
+                <Download className="w-4 h-4" />
                 Export Key
               </button>
             </div>
