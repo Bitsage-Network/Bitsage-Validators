@@ -8,6 +8,8 @@ import { getConfig } from '@/lib/env';
 import {
   getValidatorStatus,
   getGPUMetrics,
+  getWorkerUptime,
+  getWorkerStatus,
   getJobs,
   getJobStatus,
   getProofs,
@@ -140,6 +142,32 @@ export function useGPUMetrics() {
     },
     refetchInterval: 5000, // Refresh every 5 seconds for real-time GPU stats
     staleTime: 3000,
+  });
+}
+
+export function useWorkerUptime(address: string | undefined, periodHours?: number) {
+  return useQuery({
+    queryKey: ['workerUptime', address, periodHours],
+    queryFn: async () => {
+      const response = await getWorkerUptime(address!, periodHours);
+      return response.data;
+    },
+    enabled: !!address,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}
+
+export function useWorkerStatus(address: string | undefined) {
+  return useQuery({
+    queryKey: ['workerStatus', address],
+    queryFn: async () => {
+      const response = await getWorkerStatus(address!);
+      return response.data;
+    },
+    enabled: !!address,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 

@@ -156,16 +156,14 @@ export function TransactionFeeEstimator({
   const OperationIcon = operationConfig.icon;
 
   // Fetch network conditions
-  const fetchNetworkConditions = useCallback(async () => {
-    // In production, this would fetch from the Starknet RPC or oracle
-    // Mock data for development
+  const fetchNetworkConditions = useCallback(async (): Promise<NetworkConditions> => {
     const conditions: NetworkConditions = {
-      congestionLevel: Math.random() > 0.7 ? "high" : Math.random() > 0.4 ? "medium" : "low",
-      averageGasPrice: 25 + Math.random() * 20,
-      fastGasPrice: 40 + Math.random() * 30,
-      slowGasPrice: 15 + Math.random() * 10,
+      congestionLevel: "low",
+      averageGasPrice: 0,
+      fastGasPrice: 0,
+      slowGasPrice: 0,
       blockTime: 3,
-      pendingTxCount: Math.floor(Math.random() * 500),
+      pendingTxCount: 0,
     };
     setNetworkConditions(conditions);
     return conditions;

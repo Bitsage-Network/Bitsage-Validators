@@ -347,33 +347,3 @@ export function EarningsSparkline({
   );
 }
 
-// ============================================================================
-// Generate Mock Data (for development/testing)
-// ============================================================================
-
-export function generateMockEarningsData(days: number): EarningsDataPoint[] {
-  const data: EarningsDataPoint[] = [];
-  const now = new Date();
-
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-
-    const jobCompletion = Math.random() * 500 + 50;
-    const stakeReward = Math.random() * 200 + 20;
-    const referral = Math.random() * 50;
-
-    data.push({
-      date: date.toISOString().split('T')[0],
-      label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      amount: jobCompletion + stakeReward + referral,
-      breakdown: {
-        jobCompletion,
-        stakeReward,
-        referral,
-      },
-    });
-  }
-
-  return data;
-}

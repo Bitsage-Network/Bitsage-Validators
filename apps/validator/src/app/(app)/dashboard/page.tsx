@@ -28,7 +28,7 @@ import {
   SkeletonList,
 } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useRecentJobsFromDb, useDashboardDbStats, useGPUMetrics } from "@/lib/hooks/useApiData";
+import { useRecentJobsFromDb, useDashboardDbStats, useGPUMetrics, useValidatorStatus } from "@/lib/hooks/useApiData";
 import type { JobDbRecord, GPUMetrics } from "@/lib/api/client";
 import { ErrorBoundary } from "@/components/error/ErrorBoundary";
 import { ActivityFeed, useActivityFeed, type ActivityItem } from "@/components/activity/ActivityFeed";
@@ -70,6 +70,7 @@ export default function DashboardPage() {
   const { data: dbRecentJobs, isLoading: loadingDbJobs } = useRecentJobsFromDb(5);
   const { data: dbStats, isLoading: loadingDbStats } = useDashboardDbStats();
   const { data: networkStats, isLoading: loadingNetworkStats } = useNetworkStats();
+  const { data: coordinatorStatus } = useValidatorStatus();
 
   // Use database data
   const recentJobs = dbRecentJobs;
@@ -89,7 +90,6 @@ export default function DashboardPage() {
     status: hasStaked ? 'active' : 'inactive',
     gpuTier: hasStaked ? 3 : 0,
     totalJobsCompleted: dbStats?.total_jobs || 0,
-    uptimePercentage: hasCompletedJobs ? 99.7 : 0,
   };
   const loadingValidator = loadingDbStats || loadingOnChainStake;
 
@@ -97,7 +97,9 @@ export default function DashboardPage() {
   const gpuMetricsList: GPUMetrics[] = Array.isArray(gpuMetricsRaw) ? gpuMetricsRaw : [];
 
   const rewardsInfo = dbStats ? {
-    pendingRewards: 0n, // Will be fetched from on-chain when available
+    pendingRewards: coordinatorStatus?.pending_rewards
+      ? BigInt(coordinatorStatus.pending_rewards)
+      : 0n,
     totalEarned: BigInt(dbStats.total_earnings || 0),
   } : null;
   const loadingRewards = loadingDbStats;
@@ -155,7 +157,7 @@ export default function DashboardPage() {
   const totalStaked = stakeInfo?.stakedAmount;
   const pendingRewards = rewardsInfo?.pendingRewards;
   const totalEarnings = rewardsInfo?.totalEarned;
-  const reputation = 0; // Will be fetched from on-chain reputation contract
+  const reputation = coordinatorStatus?.reputation ?? 0;
   const isValidatorActive = validatorStatus?.status === 'active';
 
   const isLoading = loadingValidator || loadingGpus || loadingJobs || loadingRewards || loadingStake;
@@ -355,7 +357,7 @@ export default function DashboardPage() {
                 <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-500/20">
                   <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
                 </div>
-                <span className="text-emerald-400 text-xs sm:text-sm">+12.5%</span>
+                <span className="text-gray-400 text-xs sm:text-sm">{"\u2014"}</span>
               </div>
               <p className="text-2xl sm:text-3xl font-bold text-white">
                 {formatSage(totalEarnings)} <span className="text-sm sm:text-lg text-gray-400">SAGE</span>

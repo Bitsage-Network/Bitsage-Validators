@@ -18,6 +18,11 @@ import type {
   NetworkMetrics,
   EarningsMetrics,
 } from "@/components/analytics/AnalyticsDashboard";
+import {
+  getJobDbAnalytics,
+  getProofDbStats,
+  getNetworkStats,
+} from "@/lib/api/client";
 
 // ============================================
 // Types
@@ -41,179 +46,70 @@ interface UseAnalyticsResult {
   lastUpdated: number | null;
 }
 
-interface AnalyticsSnapshot {
-  timestamp: number;
-  jobs: {
-    completed: number;
-    failed: number;
-    pending: number;
-  };
-  proofs: {
-    generated: number;
-    verified: number;
-    failed: number;
-  };
-  earnings: number;
-  utilization: number;
-}
-
 // ============================================
-// Time Range Helpers
+// Data Fetching (real coordinator APIs)
 // ============================================
 
-const TIME_RANGE_MS: Record<TimeRange, number> = {
-  "1h": 60 * 60 * 1000,
-  "24h": 24 * 60 * 60 * 1000,
-  "7d": 7 * 24 * 60 * 60 * 1000,
-  "30d": 30 * 24 * 60 * 60 * 1000,
-  all: Infinity,
-};
+async function fetchAnalyticsData(_timeRange: TimeRange): Promise<AnalyticsData> {
+  const [jobsRes, proofsRes, networkRes] = await Promise.allSettled([
+    getJobDbAnalytics(),
+    getProofDbStats(),
+    getNetworkStats(),
+  ]);
 
-const TIME_RANGE_POINTS: Record<TimeRange, number> = {
-  "1h": 12,
-  "24h": 24,
-  "7d": 7,
-  "30d": 30,
-  all: 60,
-};
-
-// ============================================
-// Mock Data Generator
-// ============================================
-
-function generateHistoricalData(
-  timeRange: TimeRange,
-  now: number
-): AnalyticsSnapshot[] {
-  const points = TIME_RANGE_POINTS[timeRange];
-  const duration = TIME_RANGE_MS[timeRange] === Infinity ? 30 * 24 * 60 * 60 * 1000 : TIME_RANGE_MS[timeRange];
-  const interval = duration / points;
-
-  return Array.from({ length: points }, (_, i) => {
-    const timestamp = now - (points - 1 - i) * interval;
-    const hour = new Date(timestamp).getHours();
-    const dayMultiplier = hour >= 9 && hour <= 17 ? 1.3 : 0.8;
-
-    return {
-      timestamp,
-      jobs: {
-        completed: Math.floor((400 + Math.random() * 200) * dayMultiplier),
-        failed: Math.floor(Math.random() * 20),
-        pending: Math.floor(50 + Math.random() * 50),
-      },
-      proofs: {
-        generated: Math.floor((300 + Math.random() * 150) * dayMultiplier),
-        verified: Math.floor((280 + Math.random() * 140) * dayMultiplier),
-        failed: Math.floor(Math.random() * 15),
-      },
-      earnings: 100 + Math.random() * 150,
-      utilization: 60 + Math.random() * 30,
-    };
-  });
-}
-
-function aggregateSnapshots(snapshots: AnalyticsSnapshot[]): {
-  jobs: JobMetrics;
-  proofs: ProofMetrics;
-  network: NetworkMetrics;
-  earnings: EarningsMetrics;
-} {
-  const totalJobs = snapshots.reduce((sum, s) => sum + s.jobs.completed + s.jobs.failed, 0);
-  const completedJobs = snapshots.reduce((sum, s) => sum + s.jobs.completed, 0);
-  const failedJobs = snapshots.reduce((sum, s) => sum + s.jobs.failed, 0);
-  const pendingJobs = snapshots[snapshots.length - 1]?.jobs.pending ?? 0;
-
-  const totalProofs = snapshots.reduce((sum, s) => sum + s.proofs.generated, 0);
-  const verifiedProofs = snapshots.reduce((sum, s) => sum + s.proofs.verified, 0);
-  const failedProofs = snapshots.reduce((sum, s) => sum + s.proofs.failed, 0);
-
-  const periodEarnings = snapshots.reduce((sum, s) => sum + s.earnings, 0);
-  const avgUtilization = snapshots.reduce((sum, s) => sum + s.utilization, 0) / snapshots.length;
+  const jobs = jobsRes.status === 'fulfilled' ? jobsRes.value.data : null;
+  const proofs = proofsRes.status === 'fulfilled' ? proofsRes.value.data : null;
+  const network = networkRes.status === 'fulfilled' ? networkRes.value.data : null;
 
   return {
     jobs: {
-      totalJobs,
-      completedJobs,
-      failedJobs,
-      pendingJobs,
-      avgCompletionTime: 35000 + Math.random() * 20000,
-      successRate: totalJobs > 0 ? (completedJobs / totalJobs) * 100 : 100,
-      throughput: completedJobs / snapshots.length,
-      jobsByType: {
-        "AI Inference": Math.floor(completedJobs * 0.45),
-        "Data Pipeline": Math.floor(completedJobs * 0.25),
-        "ML Training": Math.floor(completedJobs * 0.18),
-        "Generic Compute": Math.floor(completedJobs * 0.12),
-      },
+      totalJobs: jobs?.total_jobs ?? 0,
+      completedJobs: jobs?.completed_jobs ?? 0,
+      failedJobs: jobs?.failed_jobs ?? 0,
+      pendingJobs: jobs?.pending_jobs ?? 0,
+      avgCompletionTime: jobs?.avg_execution_time_ms ?? 0,
+      successRate: jobs?.completion_rate ?? 0,
+      throughput: jobs?.jobs_last_24h ? jobs.jobs_last_24h / 24 : 0,
+      jobsByType: Object.fromEntries(
+        (jobs?.by_type ?? []).map((t: { job_type: string; count: number }) => [t.job_type, t.count])
+      ),
     },
     proofs: {
-      totalProofs,
-      verifiedProofs,
-      failedProofs,
-      avgGenerationTime: 7000 + Math.random() * 4000,
-      avgVerificationTime: 80 + Math.random() * 80,
-      proofsByCircuit: {
-        PRIVACY_WITHDRAW: Math.floor(totalProofs * 0.28),
-        PRIVACY_TRANSFER: Math.floor(totalProofs * 0.18),
-        AI_INFERENCE: Math.floor(totalProofs * 0.35),
-        GENERIC_COMPUTE: Math.floor(totalProofs * 0.19),
-      },
-      teeProofs: Math.floor(totalProofs * 0.45),
-      gpuProofs: Math.floor(totalProofs * 0.55),
+      totalProofs: proofs?.total_proofs ?? 0,
+      verifiedProofs: proofs?.verified_proofs ?? 0,
+      failedProofs: proofs?.failed_proofs ?? 0,
+      avgGenerationTime: 0,
+      avgVerificationTime: proofs?.avg_verification_time_ms ?? 0,
+      proofsByCircuit: {},
+      teeProofs: 0,
+      gpuProofs: 0,
       wasmProofs: 0,
     },
     network: {
-      activeWorkers: 180 + Math.floor(Math.random() * 60),
-      totalWorkers: 312,
-      totalGPUs: 892,
-      activeGPUs: 650 + Math.floor(Math.random() * 150),
-      networkHashrate: 35 + Math.random() * 20,
-      avgLatency: 15 + Math.random() * 20,
-      peakTPS: 1250,
-      currentTPS: 700 + Math.floor(Math.random() * 400),
+      activeWorkers: network?.active_workers ?? 0,
+      totalWorkers: network?.total_workers ?? 0,
+      totalGPUs: 0,
+      activeGPUs: 0,
+      networkHashrate: 0,
+      avgLatency: 0,
+      peakTPS: 0,
+      currentTPS: 0,
     },
     earnings: {
-      totalEarned: 125430.5,
-      periodEarned: periodEarnings,
-      pendingRewards: 500 + Math.random() * 800,
-      claimedRewards: 124538.2,
-      projectedMonthly: periodEarnings * (30 / snapshots.length),
-      earningsBySource: {
-        compute: periodEarnings * 0.55,
-        proofs: periodEarnings * 0.28,
-        staking: periodEarnings * 0.12,
-        governance: periodEarnings * 0.05,
-      },
-      roi: 115 + Math.random() * 30,
+      totalEarned: 0,
+      periodEarned: 0,
+      pendingRewards: 0,
+      claimedRewards: 0,
+      projectedMonthly: 0,
+      earningsBySource: { compute: 0, proofs: 0, staking: 0, governance: 0 },
+      roi: 0,
     },
-  };
-}
-
-async function fetchAnalyticsData(timeRange: TimeRange): Promise<AnalyticsData> {
-  const now = Date.now();
-
-  // Try real API first
-  try {
-    const response = await fetch(`/api/jobs/analytics?range=${timeRange}`);
-    if (response.ok) {
-      return response.json();
-    }
-  } catch {
-    // Fall through to mock data
-  }
-
-  // Generate mock data
-  const snapshots = generateHistoricalData(timeRange, now);
-  const aggregated = aggregateSnapshots(snapshots);
-
-  return {
-    ...aggregated,
     historical: {
-      timestamps: snapshots.map((s) => s.timestamp),
-      jobs: snapshots.map((s) => s.jobs.completed),
-      proofs: snapshots.map((s) => s.proofs.generated),
-      earnings: snapshots.map((s) => s.earnings),
-      utilization: snapshots.map((s) => s.utilization),
+      timestamps: (jobs?.hourly_distribution ?? []).map((h: { hour: number; count: number }) => h.hour),
+      jobs: (jobs?.hourly_distribution ?? []).map((h: { hour: number; count: number }) => h.count),
+      proofs: [],
+      earnings: [],
+      utilization: [],
     },
   };
 }
@@ -351,4 +247,4 @@ export function useEarningsAnalytics(timeRange: TimeRange = "30d") {
   );
 }
 
-export type { TimeRange, UseAnalyticsOptions, UseAnalyticsResult, AnalyticsSnapshot };
+export type { TimeRange, UseAnalyticsOptions, UseAnalyticsResult };
