@@ -202,6 +202,29 @@ async function handleDetect(options: { json?: boolean }): Promise<void> {
     if (gpuInfo.driver) {
       console.log(chalk.dim(`  Driver:  ${gpuInfo.driver}`));
     }
+
+    // Report GPU to coordinator (non-blocking)
+    const config = loadConfig();
+    const coordinatorPort = config.services?.coordinator?.port || 3030;
+    try {
+      const res = await fetch(`http://localhost:${coordinatorPort}/api/v1/workers/gpu/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          worker_id: config.wallet?.address || "unknown",
+          owner_wallet: config.wallet?.address || "unknown",
+          gpu_model: gpuInfo.name,
+          gpu_backend: gpuInfo.type,
+          vram_gb: gpuInfo.vramGb,
+          capacity: 1,
+        }),
+      });
+      if (res.ok) {
+        console.log(chalk.green("  ✓ Reported to coordinator"));
+      }
+    } catch {
+      // Coordinator not running — skip silently
+    }
   } else {
     console.log(chalk.yellow("  ⚠ No GPU detected"));
     console.log(chalk.dim("  The system will use CPU for proving"));
