@@ -44,8 +44,8 @@ const REQUIRED_ENV_VARS = [
 
 // Optional environment variables with defaults
 const OPTIONAL_ENV_VARS = {
-  NEXT_PUBLIC_API_URL: 'http://localhost:3030',
-  NEXT_PUBLIC_WS_URL: 'ws://localhost:3030/ws/prover',
+  NEXT_PUBLIC_API_URL: 'http://localhost:8080',
+  NEXT_PUBLIC_WS_URL: 'ws://localhost:8080/ws',
 } as const;
 
 // Contract address environment variables - required for production, optional for devnet
