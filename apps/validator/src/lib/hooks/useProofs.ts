@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount } from '@starknet-react/core';
 import { useProofsWebSocket, ProofVerifiedEvent } from './useWebSocket';
+import { getConfig } from '@/lib/env';
 
 // ============================================================================
 // Types
@@ -64,7 +65,7 @@ export interface UseProofsResult {
 // API Client
 // ============================================================================
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3030';
+const API_BASE = getConfig().apiUrl;
 
 async function fetchProofs(params: {
   workerId?: string;
