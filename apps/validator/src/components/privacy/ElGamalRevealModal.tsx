@@ -6,13 +6,10 @@ import {
   X,
   Shield,
   KeyRound,
-  Lock,
   Unlock,
   CheckCircle,
   Loader2,
   ChevronRight,
-  Copy,
-  Eye,
   AlertCircle,
   Sparkles,
 } from "lucide-react";
@@ -22,11 +19,9 @@ import type { ECPoint } from "@/lib/crypto";
 
 type RevealStep =
   | "request_signature"  // Step 1: Explain what will happen
-  | "awaiting_signature" // Step 2: Waiting for wallet
-  | "deriving_kek"       // Step 3: Deriving Key Encryption Key
-  | "loading_notes"      // Step 4: Loading encrypted notes
-  | "decrypting"         // Step 5: ElGamal decryption (show math)
-  | "complete"           // Step 6: Show result
+  | "awaiting_signature" // Step 2: Waiting for wallet (signature + KEK + note loading)
+  | "decrypting"         // Step 3: ElGamal decryption (show per-note logs)
+  | "complete"           // Step 4: Show result
   | "error";
 
 interface ElGamalRevealModalProps {
@@ -91,40 +86,20 @@ export function ElGamalRevealModal({
     hasStartedRef.current = true;
 
     try {
-      // Step 2: Awaiting signature
+      // Step: Awaiting signature — real wallet popup happens inside onReveal
       setStep("awaiting_signature");
       addLog("Requesting wallet signature...");
+      addLog("Please sign the message in your wallet");
 
-      // The actual signature happens inside onReveal
-      // We show progress based on timing
-
-      setTimeout(() => {
-        if (step === "awaiting_signature") {
-          addLog("Signature verified!");
-          setStep("deriving_kek");
-        }
-      }, 500);
-
-      // Step 3-5 happen inside onReveal
-      setTimeout(() => {
-        setStep("deriving_kek");
-        addLog("Deriving Key Encryption Key via HKDF-SHA256...");
-      }, 800);
-
-      setTimeout(() => {
-        setStep("loading_notes");
-        addLog("Loading encrypted notes from IndexedDB...");
-      }, 1200);
-
-      setTimeout(() => {
-        setStep("decrypting");
-        addLog("Starting ElGamal decryption...");
-      }, 1600);
-
-      // Actually call the reveal function
+      // Call the real reveal function (signature + KEK derivation + note loading + decryption)
       const revealResult = await onReveal();
 
-      // Log decryption details
+      // Signature accepted, KEK derived, notes loaded and decrypted
+      addLog("✓ Signature verified & KEK derived");
+      setStep("decrypting");
+      addLog("Starting ElGamal decryption log...");
+
+      // Log per-note decryption details from the real result
       if (revealResult.decryptedNotes.length > 0) {
         for (let i = 0; i < revealResult.decryptedNotes.length; i++) {
           setCurrentDecryptingNote(i);
@@ -147,20 +122,18 @@ export function ElGamalRevealModal({
       setStep("error");
       addLog("✗ Error: " + (err instanceof Error ? err.message : "Unknown error"));
     }
-  }, [onReveal, addLog, step]);
+  }, [onReveal, addLog]);
 
   // Step indicator
   const steps = [
     { id: "request_signature", label: "Sign", icon: KeyRound },
-    { id: "deriving_kek", label: "Derive KEK", icon: Lock },
     { id: "decrypting", label: "Decrypt", icon: Unlock },
     { id: "complete", label: "Done", icon: CheckCircle },
   ];
 
   const currentStepIndex = steps.findIndex(s =>
     s.id === step ||
-    (step === "awaiting_signature" && s.id === "request_signature") ||
-    (step === "loading_notes" && s.id === "decrypting")
+    (step === "awaiting_signature" && s.id === "request_signature")
   );
 
   return (
@@ -322,8 +295,8 @@ export function ElGamalRevealModal({
                 </div>
               )}
 
-              {/* Step 2-5: Processing */}
-              {(step === "awaiting_signature" || step === "deriving_kek" || step === "loading_notes" || step === "decrypting") && (
+              {/* Step 2-3: Processing */}
+              {(step === "awaiting_signature" || step === "decrypting") && (
                 <div className="space-y-5">
                   {/* Current Step Status */}
                   <div className="text-center py-6">
@@ -332,14 +305,10 @@ export function ElGamalRevealModal({
                     </div>
                     <h3 className="text-lg font-semibold text-white mb-1">
                       {step === "awaiting_signature" && "Awaiting Wallet Signature..."}
-                      {step === "deriving_kek" && "Deriving Key Encryption Key..."}
-                      {step === "loading_notes" && "Loading Encrypted Notes..."}
                       {step === "decrypting" && "Performing ElGamal Decryption..."}
                     </h3>
                     <p className="text-sm text-gray-400">
                       {step === "awaiting_signature" && "Please sign the message in your wallet"}
-                      {step === "deriving_kek" && "HKDF-SHA256(signature) → KEK"}
-                      {step === "loading_notes" && "Reading from local encrypted storage"}
                       {step === "decrypting" && `Decrypting note ${currentDecryptingNote + 1}...`}
                     </p>
                   </div>

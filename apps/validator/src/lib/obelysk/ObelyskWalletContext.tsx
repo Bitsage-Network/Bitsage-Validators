@@ -533,12 +533,12 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       //   const txHash = result.transaction_hash;
       //   await provider.waitForTransaction(txHash);
       //
-      // For now, use buildPrivacyPoolRagequitCall / buildExecuteRagequitCall
-      // from @/lib/contracts to construct the on-chain calls directly.
+      // For now, use buildInitiateRagequitCall / buildCompleteRagequitCall
+      // from @/lib/contracts, or usePrivacyPool().initiateRagequit / executeRagequit.
       throw new Error(
         "Ragequit is not yet available via the privacy client SDK. " +
-        "Use buildPrivacyPoolRagequitCall from @/lib/contracts to construct " +
-        "the ragequit transaction directly."
+        "Use usePrivacyPool().initiateRagequit() or buildInitiateRagequitCall " +
+        "from @/lib/contracts to construct the ragequit transaction directly."
       );
     } catch (error) {
       setProvingState("error");

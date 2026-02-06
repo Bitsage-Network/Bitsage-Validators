@@ -1333,6 +1333,22 @@ export const getPrivacyPoolStats = (poolId: string) =>
 export const getPrivacyStats = () =>
   apiClient.get<PrivacyStats>('/api/privacy/stats');
 
+// Get ASP membership proof for a commitment in an association set
+// Returns null if the endpoint doesn't exist yet (graceful fallback)
+export const getASPMembershipProof = async (
+  setId: string,
+  commitment: string
+): Promise<{ proof: string[]; root: string; leaf_index: number } | null> => {
+  try {
+    const response = await apiClient.get<{ proof: string[]; root: string; leaf_index: number }>(
+      `/api/privacy/asp/${setId}/proof/${commitment}`
+    );
+    return response.data;
+  } catch {
+    return null;
+  }
+};
+
 // Get privacy network graph for visualization
 export const getPrivacyNetworkGraph = (address: string) =>
   apiClient.get<NetworkGraphResponse>(`/api/privacy/network/${address}`);
