@@ -925,14 +925,14 @@ export function buildRegisterPrivacyAccountCall(
 }
 
 /**
- * Build a ragequit (emergency withdrawal) transaction
- * This allows withdrawing entire private balance to public in emergencies
+ * Build a ragequit (emergency withdrawal) transaction for PrivacyRouter.
+ * @deprecated Use buildInitiateRagequitCall (PrivacyPools contract) instead.
  * @param amount Amount to withdraw
- * @param proof ZK proof of ownership (simplified for testnet)
+ * @param proof ZK proof of ownership — required, no default
  */
 export function buildRagequitCall(
   amount: bigint,
-  proof: string[] = ["0", "0"], // Placeholder proof for testnet
+  proof: string[],
   network: NetworkType = "sepolia"
 ): Call {
   const addresses = getContractAddresses(network);

@@ -537,10 +537,20 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
 
         const response = await sendAsync([call]);
 
-        setState((s) => ({ ...s, isLoading: false }));
+        // Wait for on-chain confirmation
+        await provider.waitForTransaction(response.transaction_hash);
 
-        // Return order ID (would parse from transaction receipt)
-        return 1n; // Placeholder
+        // Fetch the real order ID from contract (last user order)
+        const countResult = await contract.call("get_user_order_count", [address]);
+        const count = Number(countResult);
+        let orderId = 0n;
+        if (count > 0) {
+          const lastOrderResult = await contract.call("get_user_order_at", [address, (count - 1).toString()]);
+          orderId = BigInt(lastOrderResult.toString());
+        }
+
+        setState((s) => ({ ...s, isLoading: false }));
+        return orderId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to create order";
         setState((s) => ({ ...s, isLoading: false, error: message }));
@@ -687,15 +697,25 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
 
         const response = await sendAsync([call]);
 
+        // Wait for on-chain confirmation and parse match ID from events
+        const receipt = await provider.waitForTransaction(response.transaction_hash);
+        let matchId = 0n;
+        if ("events" in receipt && Array.isArray(receipt.events) && receipt.events.length > 0) {
+          const ev = receipt.events[0];
+          if (ev.data && ev.data.length >= 2) {
+            matchId = BigInt(ev.data[0]) + (BigInt(ev.data[1]) << 128n);
+          }
+        }
+
         setState((s) => ({ ...s, isLoading: false }));
-        return 1n; // Placeholder match ID
+        return matchId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to execute swap";
         setState((s) => ({ ...s, isLoading: false, error: message }));
         throw error;
       }
     },
-    [address, account, contract, sendAsync, generateProofBundle]
+    [address, account, contract, provider, sendAsync, generateProofBundle]
   );
 
   /**
@@ -776,15 +796,25 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
 
         const response = await sendAsync([call]);
 
+        // Wait for on-chain confirmation and parse match ID from events
+        const receipt = await provider.waitForTransaction(response.transaction_hash);
+        let matchId = 0n;
+        if ("events" in receipt && Array.isArray(receipt.events) && receipt.events.length > 0) {
+          const ev = receipt.events[0];
+          if (ev.data && ev.data.length >= 2) {
+            matchId = BigInt(ev.data[0]) + (BigInt(ev.data[1]) << 128n);
+          }
+        }
+
         setState((s) => ({ ...s, isLoading: false }));
-        return 1n;
+        return matchId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to execute match";
         setState((s) => ({ ...s, isLoading: false, error: message }));
         throw error;
       }
     },
-    [address, account, contract, sendAsync, generateProofBundle]
+    [address, account, contract, provider, sendAsync, generateProofBundle]
   );
 
   /**
