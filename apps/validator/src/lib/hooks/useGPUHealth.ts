@@ -209,8 +209,8 @@ export function useGPUHealth(options: UseGPUHealthOptions = {}) {
       status,
       issues,
       lastUpdated: Date.now(),
-      uptime: Math.floor(Math.random() * 86400 * 30), // Mock uptime
-      errorsLast24h: issues.length > 0 ? Math.floor(Math.random() * 5) : 0,
+      uptime: 0,
+      errorsLast24h: issues.length,
     };
   }, []);
 

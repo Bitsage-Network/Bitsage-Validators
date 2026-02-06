@@ -106,14 +106,14 @@ export default function NetworkPage() {
       avgResponseTime: (baseStats.avg_response_time ?? baseStats.avgResponseTime)
         ? `${Number(baseStats.avg_response_time ?? baseStats.avgResponseTime).toFixed(1)}s`
         : "—",
-      networkUptime: baseStats.uptime ? `${(Number(baseStats.uptime) * 100).toFixed(2)}%` : "99.97%",
+      networkUptime: baseStats.uptime ? `${(Number(baseStats.uptime) * 100).toFixed(2)}%` : "\u2014",
       currentEpoch: baseStats.currentEpoch ?? baseStats.epoch ?? 0,
       jobSuccessRate: (baseStats.success_rate ?? baseStats.successRate)
         ? `${(Number(baseStats.success_rate ?? baseStats.successRate) * 100).toFixed(1)}%`
-        : "98.5%",
+        : "\u2014",
       teeAttestationRate: (baseStats.tee_attestation_rate ?? baseStats.teeAttestationRate)
         ? `${(Number(baseStats.tee_attestation_rate ?? baseStats.teeAttestationRate) * 100).toFixed(1)}%`
-        : "87.2%",
+        : "\u2014",
     };
   }, [networkStats, streamedStats]);
 

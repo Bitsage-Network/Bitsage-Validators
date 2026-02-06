@@ -28,8 +28,8 @@ import {
   SkeletonList,
 } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useRecentJobsFromDb, useDashboardDbStats } from "@/lib/hooks/useApiData";
-import type { JobDbRecord } from "@/lib/api/client";
+import { useRecentJobsFromDb, useDashboardDbStats, useGPUMetrics } from "@/lib/hooks/useApiData";
+import type { JobDbRecord, GPUMetrics } from "@/lib/api/client";
 import { ErrorBoundary } from "@/components/error/ErrorBoundary";
 import { ActivityFeed, useActivityFeed, type ActivityItem } from "@/components/activity/ActivityFeed";
 import { QuickReference } from "@/components/help/KeyboardShortcutsModal";
@@ -93,12 +93,8 @@ export default function DashboardPage() {
   };
   const loadingValidator = loadingDbStats || loadingOnChainStake;
 
-  const gpuMetrics: {
-    total_gpus?: number;
-    active_gpus?: number;
-    gpus?: Array<{ name: string; temperature: number; utilization: number; memory_used: number; memory_total: number }>;
-  } | null = null; // Will be fetched from worker API
-  const loadingGpus = false;
+  const { data: gpuMetricsRaw, isLoading: loadingGpus } = useGPUMetrics();
+  const gpuMetricsList: GPUMetrics[] = Array.isArray(gpuMetricsRaw) ? gpuMetricsRaw : [];
 
   const rewardsInfo = dbStats ? {
     pendingRewards: 0n, // Will be fetched from on-chain when available
@@ -115,8 +111,7 @@ export default function DashboardPage() {
   const { data: sageBalanceData } = useSageBalance(address);
   const sageBalance = sageBalanceData ? BigInt(sageBalanceData.toString()) : 0n;
   const stakedAmount = stakedAmountOnChain;
-  // GPU metrics not yet implemented - will be fetched from worker API later
-  const hasGpuConnected = false;
+  const hasGpuConnected = gpuMetricsList.length > 0;
 
   // Activity feed for real-time updates
   const activityFeed = useActivityFeed(50);
@@ -155,9 +150,8 @@ export default function DashboardPage() {
 
   const formatAddress = (addr: string) => `${addr.slice(0, 8)}...${addr.slice(-6)}`;
 
-  // Derive stats from data (GPU metrics placeholder until worker API is integrated)
-  const gpuCount = 0;
-  const activeGpus = 0;
+  const gpuCount = gpuMetricsList.length;
+  const activeGpus = gpuMetricsList.filter((g: GPUMetrics) => g.status === 'active').length;
   const totalStaked = stakeInfo?.stakedAmount;
   const pendingRewards = rewardsInfo?.pendingRewards;
   const totalEarnings = rewardsInfo?.totalEarned;
@@ -462,8 +456,55 @@ export default function DashboardPage() {
                 </div>
               ))}
             </>
+          ) : gpuMetricsList.length > 0 ? (
+            gpuMetricsList.map((gpu) => (
+              <motion.div key={gpu.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-4 sm:p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className={`p-2 rounded-lg ${gpu.status === 'active' ? 'bg-emerald-500/20' : 'bg-gray-500/20'}`}>
+                      <HardDrive className={`w-4 h-4 sm:w-5 sm:h-5 ${gpu.status === 'active' ? 'text-emerald-400' : 'text-gray-400'}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{gpu.name}</p>
+                      <p className="text-xs text-gray-500">{gpu.model}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    gpu.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-400'
+                  }`}>{gpu.status}</span>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400 flex items-center gap-1"><Thermometer className="w-3 h-3" /> Temp</span>
+                      <span className="text-xs text-white">{gpu.temperature}&deg;C</span>
+                    </div>
+                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${gpu.temperature > 80 ? 'bg-red-500' : gpu.temperature > 65 ? 'bg-orange-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(gpu.temperature, 100)}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Utilization</span>
+                      <span className="text-xs text-white">{gpu.utilization}%</span>
+                    </div>
+                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${gpu.utilization}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">VRAM</span>
+                      <span className="text-xs text-white">{gpu.memory_used}MB / {gpu.memory_total}MB</span>
+                    </div>
+                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+                      <div className="h-full bg-violet-500 rounded-full" style={{ width: `${gpu.memory_total > 0 ? (gpu.memory_used / gpu.memory_total) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))
           ) : (
-            // GPU metrics will be rendered here when worker API is integrated
             <div key="no-gpus" className="glass-card col-span-full">
               <EmptyState
                 icon={Server}

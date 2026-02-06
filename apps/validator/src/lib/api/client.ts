@@ -133,6 +133,27 @@ export interface GPUMetrics {
   current_job?: string;
 }
 
+export interface WorkerUptimeResponse {
+  worker_address: string;
+  period_hours: number;
+  uptime_percent: number;
+  total_heartbeats: number;
+  expected_heartbeats: number;
+  last_heartbeat: number | null;
+  status: string;
+}
+
+export interface WorkerStatusSummary {
+  worker_address: string;
+  status: string;
+  uptime_percent_24h: number;
+  last_seen: number | null;
+  gpu_count: number | null;
+  gpu_utilization: number | null;
+  jobs_in_progress: number;
+  version: string | null;
+}
+
 export interface JobInfo {
   id: string;
   type: string;
@@ -711,6 +732,14 @@ export const getNetworkStats = () => apiClient.get<NetworkStats>('/api/network/s
 // Validator
 export const getValidatorStatus = () => apiClient.get<ValidatorStatus>('/api/validator/status');
 export const getGPUMetrics = () => apiClient.get<GPUMetrics[]>('/api/validator/gpus');
+export const getWorkerUptime = (address: string, periodHours?: number) =>
+  apiClient.get<WorkerUptimeResponse>('/api/worker/uptime', {
+    params: { address, period_hours: periodHours },
+  });
+export const getWorkerStatus = (address: string) =>
+  apiClient.get<WorkerStatusSummary>('/api/worker/status', {
+    params: { address },
+  });
 export const getRewards = () => apiClient.get<RewardsInfo>('/api/validator/rewards');
 
 // Jobs
