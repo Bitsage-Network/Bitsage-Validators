@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount, useConnect, useDisconnect, useSendTransaction } from "@starknet-react/core";
 import {
   Droplets,
   Wallet,
@@ -18,6 +18,8 @@ import {
   Github,
   Star,
   MessageCircle,
+  Link2,
+  LogOut,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { LogoIcon } from "@/components/ui/Logo";
@@ -125,8 +127,12 @@ interface SocialConnections {
 }
 
 export default function FaucetPage() {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { connect, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
   const { network } = useNetwork();
+  const [manualAddress, setManualAddress] = useState("");
+  const [useManualAddress, setUseManualAddress] = useState(false);
   const [success, setSuccess] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
@@ -441,6 +447,10 @@ export default function FaucetPage() {
   const totalDistributed = formatTotalDistributed();
   const uniqueClaimants = formatUniqueClaimants();
 
+  // Effective address: connected wallet takes priority, fallback to manual input
+  const effectiveAddress = address || (useManualAddress && manualAddress ? manualAddress : undefined);
+  const isValidStarknetAddress = (addr: string) => /^0x[0-9a-fA-F]{1,64}$/.test(addr);
+
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       {/* Header */}
@@ -538,15 +548,43 @@ export default function FaucetPage() {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Connected Wallet */}
+          {/* Receiving Address */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">Receiving Address</label>
-            <div className="flex items-center gap-3 p-4 bg-surface-elevated rounded-xl border border-surface-border">
-              <Wallet className="w-5 h-5 text-emerald-400" />
-              <code className="text-sm text-white font-mono flex-1 truncate">
-                {address ? formatAddress(address) : "Connect wallet to continue"}
-              </code>
-              {address && (
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm text-gray-400">Receiving Address</label>
+              <button
+                onClick={() => setUseManualAddress(!useManualAddress)}
+                className="text-xs text-gray-500 hover:text-emerald-400 transition-colors flex items-center gap-1"
+              >
+                {useManualAddress ? (
+                  <><Wallet className="w-3 h-3" /> Connect wallet</>
+                ) : (
+                  <><Link2 className="w-3 h-3" /> Paste address</>
+                )}
+              </button>
+            </div>
+
+            {useManualAddress ? (
+              /* Manual address input */
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={manualAddress}
+                  onChange={(e) => setManualAddress(e.target.value)}
+                  placeholder="0x... paste Starknet address"
+                  className="input-field font-mono text-sm"
+                />
+                {manualAddress && !isValidStarknetAddress(manualAddress) && (
+                  <p className="text-xs text-red-400">Invalid Starknet address format</p>
+                )}
+              </div>
+            ) : isConnected && address ? (
+              /* Connected wallet display */
+              <div className="flex items-center gap-3 p-4 bg-surface-elevated rounded-xl border border-emerald-500/30">
+                <Wallet className="w-5 h-5 text-emerald-400" />
+                <code className="text-sm text-white font-mono flex-1 truncate">
+                  {formatAddress(address)}
+                </code>
                 <a
                   href={`https://sepolia.starkscan.co/contract/${address}`}
                   target="_blank"
@@ -555,8 +593,34 @@ export default function FaucetPage() {
                 >
                   <ExternalLink className="w-4 h-4" />
                 </a>
-              )}
-            </div>
+                <button
+                  onClick={() => disconnect()}
+                  className="text-gray-400 hover:text-red-400 transition-colors"
+                  title="Disconnect"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              /* Connect wallet buttons */
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  {connectors.map((connector) => (
+                    <button
+                      key={connector.id}
+                      onClick={() => connect({ connector })}
+                      className="btn-secondary flex items-center justify-center gap-2 py-3"
+                    >
+                      <Wallet className="w-4 h-4" />
+                      {connector.name}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-center text-gray-500">
+                  Or <button onClick={() => setUseManualAddress(true)} className="text-emerald-400 hover:underline">paste an address</button> to receive tokens
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Token Amount & Stats */}
@@ -625,7 +689,7 @@ export default function FaucetPage() {
           {/* Request Button */}
           <button
             onClick={handleOnChainClaim}
-            disabled={txPending || !address}
+            disabled={txPending || !effectiveAddress || (useManualAddress && !isValidStarknetAddress(manualAddress))}
             className="btn-glow w-full py-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {txPending ? (
