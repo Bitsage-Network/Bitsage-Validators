@@ -8,49 +8,55 @@ import {
   Server,
   Activity,
   CheckCircle2,
-  AlertCircle,
   Clock,
   ArrowUpRight,
   Shield,
   Thermometer,
-  HardDrive,
   Loader2,
   Wifi,
   WifiOff,
   Users,
-  Keyboard,
+  Briefcase,
+  DollarSign,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   SkeletonCard,
-  SkeletonListItem,
-  SkeletonList,
 } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useRecentJobsFromDb, useDashboardDbStats, useGPUMetrics, useValidatorStatus } from "@/lib/hooks/useApiData";
-import type { JobDbRecord, GPUMetrics } from "@/lib/api/client";
 import { ErrorBoundary } from "@/components/error/ErrorBoundary";
-import { ActivityFeed, useActivityFeed, type ActivityItem } from "@/components/activity/ActivityFeed";
-import { QuickReference } from "@/components/help/KeyboardShortcutsModal";
+import { useDashboardWithDb } from "@/lib/hooks";
+import { useOnChainStakeInfo, useSageBalance } from "@/lib/contracts";
 import { GettingStartedWizard } from "@/components/onboarding/GettingStartedWizard";
-import { useEffect, useCallback, useState } from "react";
-import { useSafeWebSocketContext } from "@/lib/providers/WebSocketProvider";
-import { useNetworkStats } from "@/lib/hooks/useApiData";
-import { useSageBalance, useOnChainStakeInfo } from "@/lib/contracts";
+import { QuickReference } from "@/components/help/KeyboardShortcutsModal";
+import { cn, formatAddress, formatDuration } from "@/lib/utils";
+import type { GPUMetrics, JobDbRecord } from "@/lib/api/client";
 
-const statusConfig = {
-  active: { color: "text-emerald-400", bg: "bg-emerald-500/20", label: "Active" },
-  inactive: { color: "text-gray-400", bg: "bg-gray-500/20", label: "Not Registered" },
-  idle: { color: "text-orange-400", bg: "bg-orange-500/20", label: "Idle" },
-  offline: { color: "text-red-400", bg: "bg-red-500/20", label: "Offline" },
-  running: { color: "text-emerald-400", bg: "bg-emerald-500/20", label: "Running" },
-  completed: { color: "text-emerald-400", bg: "bg-emerald-500/20", label: "Completed" },
-  failed: { color: "text-red-400", bg: "bg-red-500/20", label: "Failed" },
-  pending: { color: "text-yellow-400", bg: "bg-yellow-500/20", label: "Pending" },
+const statusConfig: Record<string, { color: string; bg: string; dot: string; label: string }> = {
+  active: { color: "text-emerald-400", bg: "bg-emerald-500/20", dot: "bg-emerald-400", label: "Active" },
+  idle: { color: "text-amber-400", bg: "bg-amber-500/20", dot: "bg-amber-400", label: "Idle" },
+  offline: { color: "text-red-400", bg: "bg-red-500/20", dot: "bg-red-400", label: "Offline" },
+  completed: { color: "text-emerald-400", bg: "bg-emerald-500/20", dot: "bg-emerald-400", label: "Completed" },
+  running: { color: "text-amber-400", bg: "bg-amber-500/20", dot: "bg-amber-400", label: "Running" },
+  failed: { color: "text-red-400", bg: "bg-red-500/20", dot: "bg-red-400", label: "Failed" },
+  cancelled: { color: "text-zinc-400", bg: "bg-zinc-500/20", dot: "bg-zinc-400", label: "Cancelled" },
+  pending: { color: "text-yellow-400", bg: "bg-yellow-500/20", dot: "bg-yellow-400", label: "Pending" },
 };
 
-// Format bigint SAGE amounts (18 decimals)
+function formatSageString(amount: string | null | undefined): string {
+  if (!amount || amount === "0") return "0.00";
+  try {
+    const num = parseFloat(amount) / 1e18;
+    if (num >= 1) return num.toFixed(2);
+    if (num >= 0.001) return num.toFixed(4);
+    return num.toExponential(2);
+  } catch {
+    return "0.00";
+  }
+}
+
 function formatSage(amount: bigint | undefined | null): string {
   if (!amount) return "0.00";
   const whole = amount / 10n ** 18n;
@@ -58,601 +64,511 @@ function formatSage(amount: bigint | undefined | null): string {
   return `${whole.toLocaleString()}.${decimal.toString().padStart(2, "0")}`;
 }
 
+function getUtilColor(pct: number): string {
+  if (pct > 90) return "bg-red-500";
+  if (pct > 70) return "bg-amber-500";
+  return "bg-emerald-500";
+}
+
+function getTempColor(temp: number): string {
+  if (temp > 90) return "text-red-400 bg-red-500/20";
+  if (temp > 70) return "text-amber-400 bg-amber-500/20";
+  return "text-emerald-400 bg-emerald-500/20";
+}
+
 export default function DashboardPage() {
   const { address } = useAccount();
 
-  // Use safe WebSocket context (may be null if provider not mounted)
-  const wsContext = useSafeWebSocketContext();
-  const wsConnected = wsContext?.isConnected ?? false;
-  const wsSubscribed = wsConnected; // Subscribed if connected
+  // Composite hook — pulls validatorStatus, gpuMetrics, dbStats, recentJobs, isConnected
+  const {
+    validatorStatus,
+    gpuMetrics,
+    dbStats,
+    recentJobs,
+    isLoading,
+    isConnected,
+    refetch,
+  } = useDashboardWithDb();
 
-  // Database/API hooks for persistent data (work without SDK providers)
-  const { data: dbRecentJobs, isLoading: loadingDbJobs } = useRecentJobsFromDb(5);
-  const { data: dbStats, isLoading: loadingDbStats } = useDashboardDbStats();
-  const { data: networkStats, isLoading: loadingNetworkStats } = useNetworkStats();
-  const { data: coordinatorStatus } = useValidatorStatus();
-
-  // Use database data
-  const recentJobs = dbRecentJobs;
-  const loadingJobs = loadingDbJobs;
-
-  // Get on-chain stake info for actual validator status
+  // On-chain data
   const { data: onChainStakeInfo, isLoading: loadingOnChainStake } = useOnChainStakeInfo(address);
-
-  // Check actual validator status based on on-chain staking data
-  // Users are only "active" validators if they have staked SAGE tokens
-  const stakedAmountOnChain = onChainStakeInfo?.amount ? BigInt(onChainStakeInfo.amount.toString()) : 0n;
-  const hasStaked = stakedAmountOnChain > 0n;
-  const hasCompletedJobs = dbStats?.total_jobs && dbStats.total_jobs > 0;
-
-  const validatorStatus = {
-    isRegistered: hasStaked,
-    status: hasStaked ? 'active' : 'inactive',
-    gpuTier: hasStaked ? 3 : 0,
-    totalJobsCompleted: dbStats?.total_jobs || 0,
-  };
-  const loadingValidator = loadingDbStats || loadingOnChainStake;
-
-  const { data: gpuMetricsRaw, isLoading: loadingGpus } = useGPUMetrics();
-  const gpuMetricsList: GPUMetrics[] = Array.isArray(gpuMetricsRaw) ? gpuMetricsRaw : [];
-
-  const rewardsInfo = dbStats ? {
-    pendingRewards: coordinatorStatus?.pending_rewards
-      ? BigInt(coordinatorStatus.pending_rewards)
-      : 0n,
-    totalEarned: BigInt(dbStats.total_earnings || 0),
-  } : null;
-  const loadingRewards = loadingDbStats;
-
-  const stakeInfo = {
-    stakedAmount: stakedAmountOnChain,
-  };
-  const loadingStake = loadingOnChainStake;
-
-  // Get on-chain SAGE balance for onboarding wizard
   const { data: sageBalanceData } = useSageBalance(address);
+
+  const stakedAmountOnChain = onChainStakeInfo?.amount ? BigInt(onChainStakeInfo.amount.toString()) : 0n;
   const sageBalance = sageBalanceData ? BigInt(sageBalanceData.toString()) : 0n;
-  const stakedAmount = stakedAmountOnChain;
-  const hasGpuConnected = gpuMetricsList.length > 0;
+  const hasGpuConnected = gpuMetrics && gpuMetrics.length > 0;
 
-  // Activity feed for real-time updates
-  const activityFeed = useActivityFeed(50);
+  // Derive validator active state from API or on-chain
+  const isValidatorActive = validatorStatus?.is_active || stakedAmountOnChain > 0n;
 
-  // Convert jobs to activity items when they change
-  useEffect(() => {
-    if (recentJobs && recentJobs.length > 0) {
-      recentJobs.forEach((job: JobDbRecord) => {
-        const activityType = job.status === 'completed'
-          ? 'job_completed'
-          : job.status === 'failed'
-            ? 'job_failed'
-            : 'job_started';
-
-        const activityStatus = job.status === 'completed'
-          ? 'success'
-          : job.status === 'failed'
-            ? 'error'
-            : job.status === 'running'
-              ? 'pending'
-              : 'info';
-
-        activityFeed.addActivity({
-          type: activityType as ActivityItem['type'],
-          status: activityStatus as ActivityItem['status'],
-          title: `${job.job_type || 'Job'} ${job.status}`,
-          description: job.job_id,
-          metadata: {
-            jobId: job.job_id,
-            jobType: job.job_type,
-          },
-        });
-      });
-    }
-  }, [recentJobs]);
-
-  const formatAddress = (addr: string) => `${addr.slice(0, 8)}...${addr.slice(-6)}`;
-
-  const gpuCount = gpuMetricsList.length;
-  const activeGpus = gpuMetricsList.filter((g: GPUMetrics) => g.status === 'active').length;
-  const totalStaked = stakeInfo?.stakedAmount;
-  const pendingRewards = rewardsInfo?.pendingRewards;
-  const totalEarnings = rewardsInfo?.totalEarned;
-  const reputation = coordinatorStatus?.reputation ?? 0;
-  const isValidatorActive = validatorStatus?.status === 'active';
-
-  const isLoading = loadingValidator || loadingGpus || loadingJobs || loadingRewards || loadingStake;
+  // GPU list (from API)
+  const gpuList: GPUMetrics[] = gpuMetrics || [];
 
   return (
     <ErrorBoundary>
-    <div className="space-y-6 md:space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Validator Dashboard</h1>
-          <div className="flex items-center gap-3 mt-1">
-            <p className="text-sm sm:text-base text-gray-400">
-              Welcome back, {address ? formatAddress(address) : ""}
-            </p>
-            <QuickReference
-              shortcuts={[
-                { keys: ["?"], label: "Help" },
-                { keys: ["\u2318", "K"], label: "Search" },
-              ]}
-              className="hidden sm:flex"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/docs" className="btn-secondary flex items-center gap-2 text-sm sm:text-base px-4 py-2 sm:px-6 sm:py-3">
-            <span className="hidden sm:inline">Add GPU</span>
-            <span className="sm:hidden">Add</span>
-            <ArrowUpRight className="w-4 h-4" />
-          </Link>
-          <Link href="/stake" className="btn-glow flex items-center gap-2 text-sm sm:text-base px-4 py-2 sm:px-6 sm:py-3">
-            <Zap className="w-4 h-4" />
-            <span className="hidden sm:inline">Stake More</span>
-            <span className="sm:hidden">Stake</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Getting Started Wizard for new users */}
-      <GettingStartedWizard
-        sageBalance={sageBalance}
-        stakedAmount={stakedAmount}
-        hasGpu={hasGpuConnected}
-      />
-
-      {/* Validator Status Banner */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card p-4 sm:p-6"
-      >
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className={`p-2 sm:p-3 rounded-xl ${isValidatorActive ? 'bg-emerald-500/20' : 'bg-gray-500/20'}`}>
-              <Shield className={`w-5 h-5 sm:w-6 sm:h-6 ${isValidatorActive ? 'text-emerald-400' : 'text-gray-400'}`} />
-            </div>
-            <div>
+      <div className="space-y-6 md:space-y-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Validator Dashboard</h1>
+            <div className="flex items-center gap-3 mt-1">
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-semibold text-white">Validator Status</h2>
-                {loadingValidator ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                ) : (
-                  <span className={`badge ${isValidatorActive ? 'badge-success' : 'bg-gray-500/20 text-gray-400'} text-xs`}>
-                    {isValidatorActive ? 'Active' : 'Not Registered'}
-                  </span>
-                )}
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  isConnected ? "bg-lime-400" : "bg-red-400"
+                )} />
+                <span className={cn(
+                  "text-xs",
+                  isConnected ? "text-lime-400" : "text-red-400"
+                )}>
+                  {isConnected ? "Connected" : "Disconnected"}
+                </span>
               </div>
-              <p className="text-xs sm:text-sm text-gray-400 mt-1">
-                {isValidatorActive
-                  ? 'Your node is validating on Starknet Sepolia'
-                  : 'Get SAGE tokens from the faucet, then stake to become a validator'}
-              </p>
+              <QuickReference
+                shortcuts={[
+                  { keys: ["?"], label: "Help" },
+                  { keys: ["\u2318", "K"], label: "Search" },
+                ]}
+                className="hidden sm:flex"
+              />
             </div>
           </div>
-          <div className="text-left sm:text-right ml-auto sm:ml-0">
-            <p className="text-xs sm:text-sm text-gray-400">Reputation Score</p>
-            <p className="text-xl sm:text-2xl font-bold text-white">
-              {loadingValidator ? <Loader2 className="w-5 h-5 animate-spin inline" /> : `${reputation}%`}
-            </p>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => refetch()}
+              className="btn-secondary flex items-center gap-2 text-sm px-3 py-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <Link href="/docs" className="btn-secondary flex items-center gap-2 text-sm px-4 py-2">
+              <span className="hidden sm:inline">Add GPU</span>
+              <span className="sm:hidden">Add</span>
+              <ArrowUpRight className="w-4 h-4" />
+            </Link>
+            <Link href="/stake" className="btn-glow flex items-center gap-2 text-sm px-4 py-2">
+              <Zap className="w-4 h-4" />
+              <span className="hidden sm:inline">Stake More</span>
+              <span className="sm:hidden">Stake</span>
+            </Link>
           </div>
         </div>
-      </motion.div>
 
-      {/* Real-time Network Stats */}
-      {wsSubscribed && (
+        {/* Getting Started Wizard for new users */}
+        <GettingStartedWizard
+          sageBalance={sageBalance}
+          stakedAmount={stakedAmountOnChain}
+          hasGpu={!!hasGpuConnected}
+        />
+
+        {/* Validator Status Banner */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="glass-card p-3 sm:p-4"
+          className="glass-card p-4 sm:p-6"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg ${wsConnected ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                {wsConnected ? (
-                  <Wifi className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <WifiOff className="w-4 h-4 text-red-400" />
-                )}
-              </div>
-              <span className="text-sm font-medium text-white">Network Status</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${wsConnected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                {wsConnected ? 'Live' : 'Offline'}
-              </span>
+          {!address ? (
+            <div className="flex items-center gap-3 text-gray-400">
+              <Shield className="w-5 h-5" />
+              <span>Connect your wallet to view validator status</span>
             </div>
-            {/* Timestamp removed - not available in NetworkStats type */}
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Users className="w-3 h-3" /> Active Workers
-              </p>
-              <p className="text-lg font-bold text-white">{networkStats?.active_workers || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Utilization</p>
-              <p className="text-lg font-bold text-white">{(networkStats?.network_utilization || 0).toFixed(1)}%</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">In Progress</p>
-              <p className="text-lg font-bold text-white">{networkStats?.jobs_in_progress || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Total Completed</p>
-              <p className="text-lg font-bold text-white">{networkStats?.total_jobs_completed || 0}</p>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <AnimatePresence mode="wait">
-          {loadingGpus ? (
-            <SkeletonCard key="gpu-skeleton" />
           ) : (
-            <motion.div
-              key="gpu-card"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.1 }}
-              className="glass-card p-4 sm:p-6"
-            >
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-500/20">
-                  <Cpu className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className={cn(
+                  "p-2 sm:p-3 rounded-xl",
+                  isValidatorActive ? "bg-emerald-500/20" : "bg-gray-500/20"
+                )}>
+                  <Shield className={cn(
+                    "w-5 h-5 sm:w-6 sm:h-6",
+                    isValidatorActive ? "text-emerald-400" : "text-gray-400"
+                  )} />
                 </div>
-                <span className="text-emerald-400 text-xs sm:text-sm flex items-center gap-1">
-                  <Activity className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Live
-                </span>
-              </div>
-              <p className="text-2xl sm:text-3xl font-bold text-white">{gpuCount}</p>
-              <p className="text-xs sm:text-sm text-gray-400 mt-1">Connected GPUs ({activeGpus} active)</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="wait">
-          {loadingStake ? (
-            <SkeletonCard key="stake-skeleton" />
-          ) : (
-            <motion.div
-              key="stake-card"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.2 }}
-              className="glass-card p-4 sm:p-6"
-            >
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <div className="p-1.5 sm:p-2 rounded-lg bg-purple-500/20">
-                  <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
-                </div>
-              </div>
-              <p className="text-2xl sm:text-3xl font-bold text-white">
-                {formatSage(totalStaked)} <span className="text-sm sm:text-lg text-gray-400">SAGE</span>
-              </p>
-              <p className="text-xs sm:text-sm text-gray-400 mt-1">Total Staked</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="wait">
-          {loadingRewards ? (
-            <SkeletonCard key="earnings-skeleton" />
-          ) : (
-            <motion.div
-              key="earnings-card"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.3 }}
-              className="glass-card p-4 sm:p-6"
-            >
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-500/20">
-                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
-                </div>
-                <span className="text-gray-400 text-xs sm:text-sm">{"\u2014"}</span>
-              </div>
-              <p className="text-2xl sm:text-3xl font-bold text-white">
-                {formatSage(totalEarnings)} <span className="text-sm sm:text-lg text-gray-400">SAGE</span>
-              </p>
-              <p className="text-xs sm:text-sm text-gray-400 mt-1">Total Earnings</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="wait">
-          {loadingRewards ? (
-            <SkeletonCard key="rewards-skeleton" />
-          ) : (
-            <motion.div
-              key="rewards-card"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.4 }}
-              className="glass-card p-4 sm:p-6"
-            >
-              <div className="flex items-center justify-between mb-3 sm:mb-4">
-                <div className="p-1.5 sm:p-2 rounded-lg bg-orange-500/20">
-                  <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-400" />
-                </div>
-                <Link href="/earnings" className="text-emerald-400 text-xs sm:text-sm hover:underline">
-                  Claim
-                </Link>
-              </div>
-              <p className="text-2xl sm:text-3xl font-bold text-white">
-                {formatSage(pendingRewards)} <span className="text-sm sm:text-lg text-gray-400">SAGE</span>
-              </p>
-              <p className="text-xs sm:text-sm text-gray-400 mt-1">Pending Rewards</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* GPU Cards */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base sm:text-lg font-semibold text-white">Your GPUs</h2>
-          <Link
-            href="/docs"
-            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-          >
-            <span className="hidden sm:inline">Add more GPUs</span>
-            <span className="sm:hidden">Add GPU</span>
-            <ArrowUpRight className="w-3 h-3" />
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <AnimatePresence mode="wait">
-          {loadingGpus ? (
-            <>
-              {[1, 2, 3].map((i) => (
-                <div key={`gpu-skeleton-${i}`} className="glass-card p-4 sm:p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <div className="skeleton-circle w-8 h-8 sm:w-10 sm:h-10" />
-                      <div>
-                        <div className="skeleton-text w-24 mb-1" />
-                        <div className="skeleton-text w-16" style={{ height: '10px' }} />
-                      </div>
-                    </div>
-                    <div className="skeleton w-14 h-5 rounded-full" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-semibold text-white">Validator Status</h2>
+                    {isLoading || loadingOnChainStake ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                    ) : (
+                      <span className={cn(
+                        "badge text-xs",
+                        isValidatorActive ? "badge-success" : "bg-gray-500/20 text-gray-400"
+                      )}>
+                        {isValidatorActive ? "Active" : "Inactive"}
+                      </span>
+                    )}
                   </div>
-                  <div className="space-y-3">
+                  <div className="flex items-center gap-4 mt-2">
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="skeleton-text w-16" style={{ height: '12px' }} />
-                        <div className="skeleton-text w-8" style={{ height: '12px' }} />
-                      </div>
-                      <div className="h-2 skeleton rounded-full" />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="skeleton-text w-14" style={{ height: '12px' }} />
-                        <div className="skeleton-text w-12" style={{ height: '12px' }} />
-                      </div>
-                      <div className="h-2 skeleton rounded-full" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="skeleton-text w-20" style={{ height: '12px' }} />
-                      <div className="skeleton-text w-10" style={{ height: '12px' }} />
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-surface-border/30 flex items-center justify-between">
-                    <div>
-                      <div className="skeleton-text w-14 mb-1" style={{ height: '10px' }} />
-                      <div className="skeleton w-12 h-5" />
-                    </div>
-                    <div className="text-right">
-                      <div className="skeleton-text w-14 mb-1 ml-auto" style={{ height: '10px' }} />
-                      <div className="skeleton w-10 h-5 ml-auto" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </>
-          ) : gpuMetricsList.length > 0 ? (
-            gpuMetricsList.map((gpu) => (
-              <motion.div key={gpu.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-4 sm:p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`p-2 rounded-lg ${gpu.status === 'active' ? 'bg-emerald-500/20' : 'bg-gray-500/20'}`}>
-                      <HardDrive className={`w-4 h-4 sm:w-5 sm:h-5 ${gpu.status === 'active' ? 'text-emerald-400' : 'text-gray-400'}`} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-white">{gpu.name}</p>
-                      <p className="text-xs text-gray-500">{gpu.model}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    gpu.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-400'
-                  }`}>{gpu.status}</span>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-400 flex items-center gap-1"><Thermometer className="w-3 h-3" /> Temp</span>
-                      <span className="text-xs text-white">{gpu.temperature}&deg;C</span>
-                    </div>
-                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${gpu.temperature > 80 ? 'bg-red-500' : gpu.temperature > 65 ? 'bg-orange-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(gpu.temperature, 100)}%` }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-400">Utilization</span>
-                      <span className="text-xs text-white">{gpu.utilization}%</span>
-                    </div>
-                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${gpu.utilization}%` }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-400">VRAM</span>
-                      <span className="text-xs text-white">{gpu.memory_used}MB / {gpu.memory_total}MB</span>
-                    </div>
-                    <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                      <div className="h-full bg-violet-500 rounded-full" style={{ width: `${gpu.memory_total > 0 ? (gpu.memory_used / gpu.memory_total) * 100 : 0}%` }} />
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))
-          ) : (
-            <div key="no-gpus" className="glass-card col-span-full">
-              <EmptyState
-                icon={Server}
-                title="No GPUs Connected"
-                description="Connect your first GPU to start validating jobs and earning SAGE rewards."
-                action={{
-                  label: "Add GPU",
-                  href: "/docs",
-                }}
-                secondaryAction={{
-                  label: "Learn More",
-                  href: "/docs#gpu-setup",
-                }}
-              />
-            </div>
-          )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="glass-card"
-      >
-        <div className="p-4 sm:p-6 border-b border-surface-border flex items-center justify-between">
-          <h2 className="text-base sm:text-lg font-semibold text-white">Recent Activity</h2>
-          <Link
-            href="/jobs"
-            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-          >
-            <span className="hidden sm:inline">View All Jobs</span>
-            <span className="sm:hidden">All</span>
-            <ArrowUpRight className="w-3 h-3" />
-          </Link>
-        </div>
-        <div className="divide-y divide-surface-border">
-          <AnimatePresence mode="wait">
-          {loadingJobs ? (
-            <div key="jobs-skeleton">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={`job-skeleton-${i}`} className="flex items-center gap-4 p-3 sm:p-4 border-b border-surface-border/30 last:border-b-0">
-                  <div className="skeleton-circle w-8 h-8 sm:w-10 sm:h-10 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="skeleton-text w-32 sm:w-48 mb-2" />
-                    <div className="skeleton-text w-24 sm:w-40" style={{ height: '12px' }} />
-                  </div>
-                  <div className="flex-shrink-0 text-right">
-                    <div className="skeleton-text w-16 sm:w-20 mb-1 ml-auto" />
-                    <div className="skeleton-text w-12 ml-auto" style={{ height: '12px' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : recentJobs && recentJobs.length > 0 ? (
-            <motion.div
-              key="jobs-list"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="divide-y divide-surface-border"
-            >
-            {recentJobs.map((job: JobDbRecord) => {
-              const jobStatus = job.status.toLowerCase();
-              const status = statusConfig[jobStatus as keyof typeof statusConfig] || statusConfig.pending;
-              const isCompleted = jobStatus === 'completed';
-              const durationMs = job.execution_time_ms;
-              const reward = job.payment_amount ? BigInt(job.payment_amount) : null;
-              return (
-                <div
-                  key={job.job_id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-surface-elevated/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                    <div className={`p-1.5 sm:p-2 rounded-lg ${status.bg} flex-shrink-0`}>
-                      {isCompleted ? (
-                        <CheckCircle2 className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${status.color}`} />
-                      ) : (
-                        <Activity className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${status.color} animate-pulse`} />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm sm:text-base font-medium text-white truncate">{job.job_type}</p>
-                      <p className="text-xs sm:text-sm text-gray-500 truncate">
-                        {job.job_id} • {durationMs ? `${(durationMs / 1000).toFixed(1)}s` : 'In progress'}
+                      <p className="text-xs text-gray-500">Staked</p>
+                      <p className="text-sm font-medium text-white">
+                        {validatorStatus ? formatSageString(validatorStatus.staked_amount) : formatSage(stakedAmountOnChain)} SAGE
                       </p>
                     </div>
-                  </div>
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-0 ml-auto sm:ml-0 flex-shrink-0">
-                    <p className="text-sm sm:text-base text-white font-medium">
-                      {reward ? `+${formatSage(reward)} SAGE` : "—"}
-                    </p>
-                    <p className="text-xs sm:text-sm text-gray-500">{status.label}</p>
+                    <div>
+                      <p className="text-xs text-gray-500">Reputation</p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500 rounded-full"
+                            style={{ width: `${validatorStatus?.reputation || 0}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium text-white">
+                          {validatorStatus?.reputation || 0}%
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-            </motion.div>
-          ) : (
-            <div key="no-jobs">
+              </div>
+              <div className="flex gap-6 text-left sm:text-right ml-auto sm:ml-0">
+                <div>
+                  <p className="text-xs text-gray-500">Pending Rewards</p>
+                  <p className="text-lg font-bold text-amber-400">
+                    {validatorStatus ? formatSageString(validatorStatus.pending_rewards) : "0.00"} <span className="text-xs text-gray-400">SAGE</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Total Earnings</p>
+                  <p className="text-lg font-bold text-white">
+                    {validatorStatus ? formatSageString(validatorStatus.total_earnings) : "0.00"} <span className="text-xs text-gray-400">SAGE</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Stats Cards (4-col grid) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <AnimatePresence mode="wait">
+            {isLoading ? (
+              <>
+                {[1, 2, 3, 4].map((i) => (
+                  <SkeletonCard key={`stat-skeleton-${i}`} />
+                ))}
+              </>
+            ) : (
+              <>
+                <motion.div
+                  key="total-jobs"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="glass-card p-4 sm:p-6"
+                >
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="p-1.5 sm:p-2 rounded-lg bg-lime-500/20">
+                      <Briefcase className="w-4 h-4 sm:w-5 sm:h-5 text-lime-400" />
+                    </div>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white">{dbStats?.total_jobs || 0}</p>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Total Jobs</p>
+                </motion.div>
+
+                <motion.div
+                  key="success-rate"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="glass-card p-4 sm:p-6"
+                >
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-500/20">
+                      <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+                    </div>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white">
+                    {(dbStats?.success_rate || 0).toFixed(1)}%
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Success Rate</p>
+                </motion.div>
+
+                <motion.div
+                  key="active-jobs"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="glass-card p-4 sm:p-6"
+                >
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="p-1.5 sm:p-2 rounded-lg bg-amber-500/20">
+                      <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+                    </div>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white">{dbStats?.active_jobs || 0}</p>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Active Jobs</p>
+                </motion.div>
+
+                <motion.div
+                  key="earnings-24h"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="glass-card p-4 sm:p-6"
+                >
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="p-1.5 sm:p-2 rounded-lg bg-lime-500/20">
+                      <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-lime-400" />
+                    </div>
+                    <Link href="/earnings" className="text-emerald-400 text-xs hover:underline">
+                      View
+                    </Link>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white">
+                    {formatSageString(dbStats?.earnings_24h || "0")}
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Earnings 24h (SAGE)</p>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* GPU Hardware */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base sm:text-lg font-semibold text-white">GPU Hardware</h2>
+            <Link
+              href="/docs"
+              className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+            >
+              <span className="hidden sm:inline">Add more GPUs</span>
+              <span className="sm:hidden">Add GPU</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className={cn(
+            "grid gap-4",
+            gpuList.length === 1 ? "grid-cols-1" :
+            gpuList.length === 2 ? "grid-cols-1 md:grid-cols-2" :
+            "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+          )}>
+            {gpuList.length > 0 ? (
+              gpuList.map((gpu) => {
+                const gpuStatus = statusConfig[gpu.status] || statusConfig.offline;
+                return (
+                  <motion.div
+                    key={gpu.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="glass-card p-4 sm:p-5"
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-emerald-500/20">
+                          <Cpu className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">{gpu.model}</p>
+                          <p className="text-xs text-gray-500">{gpu.name}</p>
+                        </div>
+                      </div>
+                      <span className={cn("badge text-xs", gpuStatus.bg, gpuStatus.color)}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full inline-block mr-1", gpuStatus.dot)} />
+                        {gpuStatus.label}
+                      </span>
+                    </div>
+
+                    {/* Utilization */}
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-400">Utilization</span>
+                          <span className="text-xs font-medium text-white">{gpu.utilization}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-surface-elevated overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all", getUtilColor(gpu.utilization))}
+                            style={{ width: `${gpu.utilization}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Temperature */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <Thermometer className="w-3 h-3 text-gray-400" />
+                          <span className="text-xs text-gray-400">Temperature</span>
+                        </div>
+                        <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", getTempColor(gpu.temperature))}>
+                          {gpu.temperature}°C
+                        </span>
+                      </div>
+
+                      {/* VRAM */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-400">VRAM</span>
+                          <span className="text-xs font-medium text-white">
+                            {gpu.memory_used.toFixed(1)} / {gpu.memory_total.toFixed(1)} GB
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-surface-elevated overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-purple-500 transition-all"
+                            style={{ width: `${(gpu.memory_used / gpu.memory_total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Power Draw */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">Power Draw</span>
+                        <span className="text-xs font-medium text-white">{gpu.power_draw}W</span>
+                      </div>
+
+                      {/* Current Job */}
+                      {gpu.current_job && (
+                        <div className="mt-2 pt-2 border-t border-surface-border/30">
+                          <div className="flex items-center gap-1">
+                            <Activity className="w-3 h-3 text-amber-400 animate-pulse" />
+                            <span className="text-xs text-gray-400">Running:</span>
+                            <span className="text-xs font-mono text-white truncate max-w-[120px]">
+                              {gpu.current_job}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })
+            ) : (
+              <div className="glass-card col-span-full">
+                <EmptyState
+                  icon={Server}
+                  title="No GPUs Registered"
+                  description="Connect your first GPU to start validating jobs and earning SAGE rewards."
+                  action={{
+                    label: "Add GPU",
+                    href: "/docs",
+                  }}
+                  secondaryAction={{
+                    label: "Learn More",
+                    href: "/docs#gpu-setup",
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Recent Jobs Table */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="glass-card"
+        >
+          <div className="p-4 sm:p-6 border-b border-surface-border flex items-center justify-between">
+            <h2 className="text-base sm:text-lg font-semibold text-white">Recent Jobs</h2>
+            <Link
+              href="/jobs"
+              className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+            >
+              <span className="hidden sm:inline">View All Jobs</span>
+              <span className="sm:hidden">All</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="overflow-x-auto">
+            {isLoading ? (
+              <div className="p-4 space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={`job-skeleton-${i}`} className="flex items-center gap-4 p-3 border-b border-surface-border/30 last:border-b-0">
+                    <div className="skeleton-circle w-8 h-8 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="skeleton-text w-32 mb-2" />
+                      <div className="skeleton-text w-24" style={{ height: "12px" }} />
+                    </div>
+                    <div className="flex-shrink-0">
+                      <div className="skeleton-text w-16 ml-auto" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : recentJobs && recentJobs.length > 0 ? (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-surface-border">
+                    <th className="text-left p-3 sm:p-4 text-xs font-medium text-gray-400">Job ID</th>
+                    <th className="text-left p-3 sm:p-4 text-xs font-medium text-gray-400">Type</th>
+                    <th className="text-left p-3 sm:p-4 text-xs font-medium text-gray-400">Status</th>
+                    <th className="text-left p-3 sm:p-4 text-xs font-medium text-gray-400 hidden md:table-cell">Worker</th>
+                    <th className="text-right p-3 sm:p-4 text-xs font-medium text-gray-400">Payment</th>
+                    <th className="text-right p-3 sm:p-4 text-xs font-medium text-gray-400 hidden sm:table-cell">Duration</th>
+                    <th className="text-right p-3 sm:p-4 text-xs font-medium text-gray-400 hidden lg:table-cell">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentJobs.map((job: JobDbRecord) => {
+                    const jobStatus = job.status.toLowerCase();
+                    const status = statusConfig[jobStatus] || statusConfig.pending;
+                    return (
+                      <tr
+                        key={job.id || job.job_id}
+                        className="border-b border-surface-border/50 hover:bg-surface-elevated/50 transition-colors"
+                      >
+                        <td className="p-3 sm:p-4">
+                          <span className="text-sm font-mono text-white truncate max-w-[100px] inline-block">
+                            {job.job_id.length > 12 ? `${job.job_id.slice(0, 6)}...${job.job_id.slice(-4)}` : job.job_id}
+                          </span>
+                        </td>
+                        <td className="p-3 sm:p-4">
+                          <span className="text-sm text-gray-300">{job.job_type}</span>
+                        </td>
+                        <td className="p-3 sm:p-4">
+                          <div className="flex items-center gap-1.5">
+                            <div className={cn("w-2 h-2 rounded-full", status.dot)} />
+                            <span className={cn("text-sm", status.color)}>{status.label}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 sm:p-4 hidden md:table-cell">
+                          <span className="text-sm font-mono text-gray-400">
+                            {job.worker_address ? formatAddress(job.worker_address) : "—"}
+                          </span>
+                        </td>
+                        <td className="p-3 sm:p-4 text-right">
+                          <span className="text-sm font-medium text-white">
+                            {job.payment_amount ? `${formatSageString(job.payment_amount)} SAGE` : "—"}
+                          </span>
+                        </td>
+                        <td className="p-3 sm:p-4 text-right hidden sm:table-cell">
+                          <span className="text-sm text-gray-400">
+                            {job.execution_time_ms ? formatDuration(job.execution_time_ms) : "—"}
+                          </span>
+                        </td>
+                        <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
+                          <span className="text-sm text-gray-400">
+                            {new Date(job.created_at).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
               <EmptyState
                 icon={Activity}
-                title="No Recent Activity"
-                description="Once you connect GPUs and start processing jobs, your activity will appear here."
+                title="No Jobs Recorded Yet"
+                description="Once you connect GPUs and start processing jobs, they will appear here."
                 action={{
                   label: "View All Jobs",
                   href: "/jobs",
                 }}
                 compact
               />
-            </div>
-          )}
-          </AnimatePresence>
-        </div>
-      </motion.div>
-
-      {/* Real-time Activity Feed */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6 }}
-        className="glass-card"
-      >
-        <div className="p-4 sm:p-6 border-b border-surface-border flex items-center justify-between">
-          <h2 className="text-base sm:text-lg font-semibold text-white">Live Activity Feed</h2>
-          <button
-            onClick={activityFeed.clearAll}
-            className="text-xs sm:text-sm text-gray-400 hover:text-white"
-          >
-            Clear All
-          </button>
-        </div>
-        <ActivityFeed
-          activities={activityFeed.activities}
-          onMarkAsRead={activityFeed.markAsRead}
-          onClearAll={activityFeed.clearAll}
-          isPaused={activityFeed.isPaused}
-          onPauseChange={activityFeed.setIsPaused}
-          showFilters
-          showPauseButton
-          groupByTime
-          className="max-h-[400px] overflow-y-auto"
-        />
-      </motion.div>
-    </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
     </ErrorBoundary>
   );
 }
