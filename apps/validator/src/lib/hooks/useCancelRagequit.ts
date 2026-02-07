@@ -13,12 +13,11 @@ import { Contract, RpcProvider } from "starknet";
 import {
   getContractAddresses,
   buildCancelRagequitCall,
-  merkleProofToLeanIMT,
   type LeanIMTProof,
   type AssociationSetInfo,
   type RagequitRequest,
 } from "@/lib/contracts";
-import { getMerkleProof, type MerkleProof } from "@/lib/crypto/merkle";
+import { getASPMembershipProof } from "@/lib/api/client";
 import PrivacyPoolsABI from "@/lib/contracts/abis/PrivacyPools.json";
 import { getConfig } from "@/lib/env";
 
@@ -204,52 +203,33 @@ export function useCancelRagequit(): UseCancelRagequitResult {
   }, []);
 
   /**
-   * Generate Merkle proof for the selected set
+   * Fetch Merkle inclusion proof for the selected ASP set
    */
   const generateInclusionProof = useCallback(async (
     setId: string,
     commitment: string
   ): Promise<LeanIMTProof> => {
-    // In production, this would:
-    // 1. Fetch all leaves from the set (or use a proof service)
-    // 2. Find the user's commitment index
-    // 3. Generate the Merkle proof
-
-    // For now, we'll generate a proof assuming the commitment is at index 0
-    // In production, you'd need a proof service or fetch leaves from contract events
-
     const selectedSet = inclusionSets.find(s => s.id === setId);
     if (!selectedSet) {
       throw new Error("Selected inclusion set not found");
     }
 
-    // Fetch leaves from contract (this is simplified - production would use events or proof service)
-    // For demo purposes, we'll create a minimal proof
-    const leafBigint = BigInt(commitment);
-    const rootBigint = BigInt(selectedSet.root);
-
-    // Generate a minimal valid proof structure
-    // In production, this would use getMerkleProof with actual leaves
-    const proof: MerkleProof = {
-      leaf: leafBigint,
-      leafIndex: 0,
-      pathElements: [], // Will be populated from contract
-      pathIndices: [],
-      root: rootBigint,
-    };
-
-    // Try to fetch real proof from API or generate from leaves
-    try {
-      // In production: call proof service or fetch leaves
-      // const leaves = await fetchLeavesFromContract(...);
-      // proof = await getMerkleProof(leafIndex, leaves);
-
-      // For now, return the structure (contract will verify)
-      return merkleProofToLeanIMT(proof, selectedSet.memberCount);
-    } catch (e) {
-      console.warn("Could not generate full proof, using minimal structure:", e);
-      return merkleProofToLeanIMT(proof, selectedSet.memberCount);
+    // Fetch real proof from ASP membership proof API
+    const aspProof = await getASPMembershipProof(setId, commitment);
+    if (!aspProof) {
+      throw new Error(
+        "Could not fetch inclusion proof for this set. " +
+        "The commitment may not be a member of the selected set, or the proof service is unavailable."
+      );
     }
+
+    return {
+      siblings: aspProof.proof,
+      pathIndices: aspProof.proof.map((_, i) => ((aspProof.leaf_index >> i) & 1) === 1),
+      leaf: commitment,
+      root: aspProof.root,
+      treeSize: selectedSet.memberCount,
+    };
   }, [inclusionSets]);
 
   /**

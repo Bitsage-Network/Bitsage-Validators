@@ -52,6 +52,12 @@ import type { PrivacyNote } from "../crypto/constants";
 
 import { usePrivacyKeys } from "./usePrivacyKeys";
 import { getConfig } from "@/lib/env";
+import { getASPMembershipProof } from "@/lib/api/client";
+import {
+  buildInitiateRagequitCall,
+  buildCompleteRagequitCall,
+  merkleProofToLeanIMT,
+} from "@/lib/contracts";
 
 // Contract ABIs (minimal)
 const ERC20_ABI = [
@@ -176,6 +182,7 @@ async function fetchMerkleProof(
   path_indices: number[];
   root: string;
   leafIndex: number;
+  treeSize: number;
 } | null> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/privacy/proof/${commitment}`);
@@ -197,6 +204,7 @@ async function fetchMerkleProof(
       path_indices: data.path_indices.map((p: number) => p),
       root: data.current_root || data.root,
       leafIndex: data.leaf_index,
+      treeSize: data.tree_size ?? data.siblings.length + 1,
     };
   } catch (error) {
     console.error("Error fetching Merkle proof:", error);
@@ -341,9 +349,9 @@ interface UsePrivacyPoolReturn {
   refreshPoolStats: () => Promise<void>; // Alias for refreshStats
   resetDepositState: () => void; // Reset deposit state to idle
 
-  // Ragequit operations (use contract calls directly - these are stubs for interface compatibility)
-  initiateRagequit: (depositIndex: number) => Promise<string>;
-  executeRagequit: (depositIndex: number) => Promise<string>;
+  // Ragequit operations
+  initiateRagequit: (noteCommitment: string, recipient?: string) => Promise<string>;
+  executeRagequit: (requestId: string) => Promise<string>;
 }
 
 export function usePrivacyPool(): UsePrivacyPoolReturn {
@@ -828,8 +836,28 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // NOT H(nullifier_secret, commitment)!
         // The leaf_index is returned by pp_deposit and stored in the note
         if (note.leafIndex === 0 && note.depositTxHash) {
-          // TODO: Fetch leafIndex from transaction receipt or indexer
-          console.warn("Warning: leafIndex is 0, may need to fetch from chain");
+          // leafIndex 0 is the default/unset value but is also valid (first deposit).
+          // Try to recover the real value; track whether recovery succeeded.
+          let recovered = false;
+
+          const fetchedIndex = await fetchLeafIndexFromReceipt(note.depositTxHash, note.commitment);
+          if (fetchedIndex !== null) {
+            note.leafIndex = fetchedIndex;
+            await updateNoteLeafIndex(note.commitment, fetchedIndex);
+            recovered = true;
+          } else {
+            // Fallback: try via backend Merkle proof endpoint
+            const merkleData = await fetchMerkleProof(note.commitment);
+            if (merkleData && typeof merkleData.leafIndex === "number") {
+              note.leafIndex = merkleData.leafIndex;
+              await updateNoteLeafIndex(note.commitment, merkleData.leafIndex);
+              recovered = true;
+            }
+          }
+
+          if (!recovered) {
+            throw new Error("Cannot withdraw: leafIndex unavailable. Deposit may not be indexed yet.");
+          }
         }
 
         const nullifier = deriveNullifier(
@@ -860,8 +888,8 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           root: merkleProof.root,
         };
 
-        // Update note's leafIndex if it was 0
-        if (note.leafIndex === 0 && merkleProof.leafIndex > 0) {
+        // Update note's leafIndex from Merkle proof if still at default
+        if (note.leafIndex === 0 && typeof merkleProof.leafIndex === "number") {
           await updateNoteLeafIndex(noteCommitment, merkleProof.leafIndex);
           note.leafIndex = merkleProof.leafIndex;
         }
@@ -876,27 +904,34 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // Build withdrawal proof based on compliance level
         const complianceLevel = complianceOptions?.complianceLevel || "full_privacy";
 
-        // TODO: In production, generate actual ASP membership proofs
-        // For now, we include placeholders that the contract can validate
         const associationSetId = complianceLevel === "association_set" && complianceOptions?.selectedASPs?.length
           ? complianceOptions.selectedASPs[0] // Use first selected ASP
           : null;
+
+        // Fetch ASP membership proof if an association set is selected
+        let associationProof = null;
+        if (associationSetId) {
+          try {
+            const aspProof = await getASPMembershipProof(associationSetId, noteCommitment);
+            if (aspProof) {
+              associationProof = aspProof;
+            }
+          } catch (e) {
+            console.warn("ASP membership proof unavailable, submitting without:", e);
+          }
+        }
 
         const withdrawalProof = {
           global_tree_proof: globalTreeProof,
           deposit_commitment: noteCommitment,
           association_set_id: associationSetId,
-          association_proof: null, // TODO: Generate actual ASP membership proof
+          association_proof: associationProof,
           exclusion_set_id: null,
           exclusion_proof: null,
           nullifier: "0x" + nullifier.toString(16),
           amount: cairo.uint256(amountWei),
           recipient: recipientAddress,
           range_proof_data: [],
-          // Include audit key if auditable compliance
-          audit_key: complianceLevel === "auditable" && complianceOptions?.auditKey
-            ? complianceOptions.auditKey
-            : null,
         };
 
         // ==============================
@@ -957,28 +992,91 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
     }
   }, [address, isKeysDerived, refreshStats]);
 
-  // Ragequit stub functions - actual implementation uses contract calls directly
-  // These are provided for interface compatibility
+  // Ragequit: initiate emergency withdrawal
   const initiateRagequit = useCallback(
-    async (depositIndex: number): Promise<string> => {
-      console.warn(
-        "initiateRagequit from usePrivacyPool is a stub. " +
-        "Use buildPrivacyPoolRagequitCall from @/lib/contracts for actual ragequit."
+    async (noteCommitment: string, recipient?: string): Promise<string> => {
+      if (!account || !address) {
+        throw new Error("Wallet not connected");
+      }
+
+      // Find the note
+      const notes = await getUnspentNotes(address);
+      const note = notes.find(n => n.commitment === noteCommitment);
+      if (!note) {
+        throw new Error("Note not found or already spent");
+      }
+
+      // Fetch global tree proof
+      const merkleProof = await fetchMerkleProof(noteCommitment);
+      if (!merkleProof) {
+        throw new Error("Could not fetch Merkle proof. Deposit may not be indexed yet.");
+      }
+
+      const globalTreeProof = {
+        siblings: merkleProof.siblings,
+        pathIndices: merkleProof.path_indices.map((i: number) => i === 1),
+        leaf: noteCommitment,
+        root: merkleProof.root,
+        treeSize: merkleProof.treeSize,
+      };
+
+      // Sign ragequit authorization
+      const messageToSign = {
+        types: {
+          StarkNetDomain: [
+            { name: "name", type: "felt" },
+            { name: "version", type: "felt" },
+            { name: "chainId", type: "felt" },
+          ],
+          Ragequit: [
+            { name: "commitment", type: "felt" },
+            { name: "action", type: "felt" },
+          ],
+        },
+        primaryType: "Ragequit",
+        domain: { name: "BitSage", version: "1", chainId: "SN_SEPOLIA" },
+        message: { commitment: noteCommitment, action: "ragequit" },
+      };
+
+      const signature = await account.signMessage(messageToSign);
+      const sigArray = Array.isArray(signature) ? signature : [signature.r?.toString() || "0", signature.s?.toString() || "0"];
+
+      const amountWei = toWei(note.denomination);
+      const TWO_POW_128 = 2n ** 128n;
+
+      const call = buildInitiateRagequitCall(
+        {
+          deposit_commitment: noteCommitment,
+          global_tree_proof: globalTreeProof,
+          exclusion_proofs: [], // Testnet: exclusion enforcement not active
+          excluded_set_ids: [],
+          depositor_signature: [sigArray[0], sigArray[1]],
+          amount: {
+            low: (amountWei % TWO_POW_128).toString(),
+            high: (amountWei / TWO_POW_128).toString(),
+          },
+          recipient: recipient || address,
+        }
       );
-      throw new Error("Use buildPrivacyPoolRagequitCall for ragequit operations");
+
+      const result = await account.execute([call]);
+      return result.transaction_hash;
     },
-    []
+    [account, address]
   );
 
+  // Ragequit: complete after waiting period
   const executeRagequit = useCallback(
-    async (depositIndex: number): Promise<string> => {
-      console.warn(
-        "executeRagequit from usePrivacyPool is a stub. " +
-        "Use buildExecuteRagequitCall from @/lib/contracts for actual ragequit."
-      );
-      throw new Error("Use buildExecuteRagequitCall for ragequit operations");
+    async (requestId: string): Promise<string> => {
+      if (!account) {
+        throw new Error("Wallet not connected");
+      }
+
+      const call = buildCompleteRagequitCall(BigInt(requestId));
+      const result = await account.execute([call]);
+      return result.transaction_hash;
     },
-    []
+    [account]
   );
 
   // Reset deposit state to idle (for "Deposit Another" flow)
@@ -1018,7 +1116,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
     refreshPoolStats: refreshStats, // Alias for compatibility
     resetDepositState,
 
-    // Ragequit stubs
+    // Ragequit
     initiateRagequit,
     executeRagequit,
   };

@@ -9,7 +9,7 @@ import {
   useEffect,
   useMemo,
 } from "react";
-import { useAccount, useConnect, useDisconnect } from "@starknet-react/core";
+import { useAccount, useConnect, useDisconnect, useProvider } from "@starknet-react/core";
 import {
   usePrivacy,
   usePrivateBalance,
@@ -159,6 +159,7 @@ function parseAmount(amount: string): bigint {
 export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
   const { address, isConnected } = useAccount();
   const { connector } = useConnect();
+  const { provider } = useProvider();
 
   // SDK privacy hooks
   const {
@@ -473,8 +474,6 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         setProvingTime(proofTimeMs);
 
         setProvingState("confirming");
-        // Wait for transaction confirmation
-        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Add transaction
         const newTx: ObelyskTransaction = {
@@ -533,12 +532,12 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       //   const txHash = result.transaction_hash;
       //   await provider.waitForTransaction(txHash);
       //
-      // For now, use buildPrivacyPoolRagequitCall / buildExecuteRagequitCall
-      // from @/lib/contracts to construct the on-chain calls directly.
+      // For now, use buildInitiateRagequitCall / buildCompleteRagequitCall
+      // from @/lib/contracts, or usePrivacyPool().initiateRagequit / executeRagequit.
       throw new Error(
         "Ragequit is not yet available via the privacy client SDK. " +
-        "Use buildPrivacyPoolRagequitCall from @/lib/contracts to construct " +
-        "the ragequit transaction directly."
+        "Use usePrivacyPool().initiateRagequit() or buildInitiateRagequitCall " +
+        "from @/lib/contracts to construct the ragequit transaction directly."
       );
     } catch (error) {
       setProvingState("error");
@@ -575,8 +574,10 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
         setProvingTime(proofTimeMs);
 
         setProvingState("confirming");
-        // Wait for confirmation
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait for real on-chain confirmation
+        if (result?.tx_hash) {
+          await provider.waitForTransaction(result.tx_hash);
+        }
 
         setProvingState("confirmed");
 
@@ -611,23 +612,12 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
           "Private transfer via privacy client is not yet supported. " +
           "Use the SDK's executePrivateTransfer hook instead."
         );
-
-        // When privacy client transfer is available, replace the throw above with:
-        //   const result = await privacyClient.transfer({ to, amount: amountBigInt });
-        //   const txHash = result.transaction_hash;
-        //   await provider.waitForTransaction(txHash);
-        //   ... update state with real tx data ...
-
-        // Update decrypted balance
-        if (decryptedPrivateBalance !== null) {
-          setDecryptedPrivateBalance(decryptedPrivateBalance! - amountBigInt);
-        }
       }
     } catch (error) {
       setProvingState("error");
       throw error;
     }
-  }, [privacyPoolBalance, decryptedPrivateBalance, privacyClient, executePrivateTransfer]);
+  }, [privacyPoolBalance, decryptedPrivateBalance, privacyClient, executePrivateTransfer, provider]);
 
   // Send public transfer (standard Starknet ERC20 transfer)
   const sendPublic = useCallback(async (to: string, amount: string) => {
@@ -651,8 +641,10 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       const result = await sendStarknetTxAsync([transferCall]);
 
       setProvingState("confirming");
-      // Wait for confirmation (in production, use transaction watcher)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait for real on-chain confirmation
+      if (result?.transaction_hash) {
+        await provider.waitForTransaction(result.transaction_hash);
+      }
 
       // Refetch balance after transfer
       refetchSageBalance();
@@ -675,7 +667,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       setProvingState("error");
       throw error;
     }
-  }, [publicBalanceValue, contractAddresses, sendStarknetTxAsync, refetchSageBalance]);
+  }, [publicBalanceValue, contractAddresses, sendStarknetTxAsync, refetchSageBalance, provider]);
 
   const value: ObelyskWalletContextType = {
     balance,

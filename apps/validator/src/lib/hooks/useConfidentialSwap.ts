@@ -32,6 +32,15 @@ import {
   hybridDecrypt,
   type AEHint,
 } from "../crypto/aeHints";
+import { poseidonHash } from "../crypto/nullifier";
+import {
+  generateRangeProof as generateZKRangeProof,
+  generateBalanceProof as generateZKBalanceProof,
+  computeChallenge,
+} from "../crypto/zkProofs";
+import { commit, commitWithRandomBlinding } from "../crypto/pedersen";
+import { getGenerator, getPedersenH, scalarMult, addPoints, mod } from "../crypto/elgamal";
+import { CURVE_ORDER } from "../crypto/constants";
 
 // Contract addresses from env
 const CONFIDENTIAL_SWAP_ADDRESS = process.env.NEXT_PUBLIC_CONFIDENTIAL_SWAP_ADDRESS ||
@@ -71,15 +80,14 @@ export interface SwapOrder {
 // Proof structures
 export interface RangeProof {
   bitCommitments: ECPoint[];
-  challenge: bigint;
-  responses: bigint[];
+  bitResponses: bigint[];
+  aggregateChallenge: bigint;
   numBits: number;
 }
 
 export interface RateProof {
   rateCommitment: ECPoint;
   challenge: bigint;
-  responseGive: bigint;
   responseRate: bigint;
   responseBlinding: bigint;
 }
@@ -161,17 +169,6 @@ export interface ProofBundleParams {
   wantAmount: bigint;
   balance: bigint;
   randomness: bigint;
-}
-
-// Poseidon hash helper (simplified - production uses proper implementation)
-function poseidonHash(inputs: bigint[]): bigint {
-  let state = 0n;
-  const STARK_PRIME = 0x800000000000011000000000000000000000000000000000000000000000001n;
-  for (const input of inputs) {
-    state = (state + input) % STARK_PRIME;
-    state = (state * state * state) % STARK_PRIME;
-  }
-  return state;
 }
 
 // Convert asset string to felt
@@ -294,105 +291,151 @@ const CONFIDENTIAL_SWAP_ABI = [
 ];
 
 /**
- * Generate a simplified range proof for an encrypted amount
- * In production, this would use proper Bulletproofs or similar
+ * Generate a range proof using real bit-decomposition with EC commitments
+ * Wraps zkProofs.generateRangeProof and adds numBits tracking for ABI serialization
  */
-function generateRangeProof(
+function generateSwapRangeProof(
   amount: bigint,
-  randomness: bigint,
+  blinding: bigint,
   numBits: number = 64
 ): RangeProof {
-  const bitCommitments: ECPoint[] = [];
-  const responses: bigint[] = [];
-
-  // Decompose amount into bits and create commitments
-  for (let i = 0; i < numBits; i++) {
-    const bit = (amount >> BigInt(i)) & 1n;
-    const bitRand = poseidonHash([randomness, BigInt(i)]);
-
-    // Commitment to bit: C_i = bit * G + r_i * H
-    // Simplified: just store the randomness as the commitment
-    bitCommitments.push({
-      x: poseidonHash([bit, bitRand]),
-      y: poseidonHash([bitRand, bit]),
-    });
-
-    // Response for this bit
-    responses.push(poseidonHash([bit, bitRand, randomness]));
-  }
-
-  // Compute Fiat-Shamir challenge
-  const challengeInput = bitCommitments.flatMap((c) => [c.x, c.y]);
-  const challenge = poseidonHash(challengeInput);
-
+  const zkProof = generateZKRangeProof(amount, blinding, numBits);
   return {
-    bitCommitments,
-    challenge,
-    responses,
+    bitCommitments: zkProof.bitCommitments,
+    bitResponses: zkProof.bitResponses,
+    aggregateChallenge: zkProof.aggregateChallenge,
     numBits,
   };
 }
 
 /**
- * Generate a rate proof showing give * rate = want
+ * Generate a rate proof: Pedersen commitment to rate + Schnorr proof of opening
+ * Proves knowledge of (rate, blinding) such that C = rate*G + blinding*H
  */
-function generateRateProof(
+function generateSwapRateProof(
   giveAmount: bigint,
   wantAmount: bigint,
-  randomness: bigint
 ): RateProof {
-  // Rate = want / give (scaled to avoid fractions)
   const rate = giveAmount > 0n ? (wantAmount * 1000000n) / giveAmount : 0n;
-  const blinding = poseidonHash([randomness, rate]);
+  const blinding = randomScalar();
 
-  // Rate commitment point
-  const rateCommitment: ECPoint = {
-    x: poseidonHash([rate, blinding]),
-    y: poseidonHash([blinding, rate]),
-  };
+  // Real Pedersen commitment: C = rate * G + blinding * H
+  const rateCommitment = commit(rate, blinding);
+
+  // Schnorr-style proof of opening
+  const g = getGenerator();
+  const h = getPedersenH();
+  const kRate = randomScalar();
+  const kBlinding = randomScalar();
+
+  // Proof commitment: A = kRate * G + kBlinding * H
+  const proofCommitment = addPoints(scalarMult(kRate, g), scalarMult(kBlinding, h));
 
   // Fiat-Shamir challenge
-  const challenge = poseidonHash([giveAmount, wantAmount, rate, blinding, randomness]);
+  const challenge = computeChallenge(g, h, rateCommitment, proofCommitment);
 
-  // Responses
-  const responseGive = giveAmount + challenge * randomness;
-  const responseRate = rate + challenge * randomness;
-  const responseBlinding = blinding + challenge * randomness;
+  // Responses: s = k + c * secret
+  const responseRate = mod(kRate + challenge * rate, CURVE_ORDER);
+  const responseBlinding = mod(kBlinding + challenge * blinding, CURVE_ORDER);
 
   return {
     rateCommitment,
     challenge,
-    responseGive,
     responseRate,
     responseBlinding,
   };
 }
 
 /**
- * Generate a balance proof showing balance >= amount
+ * Generate a balance proof: proves newBalance = oldBalance - amount AND newBalance >= 0
+ * Wraps zkProofs.generateBalanceProof and extracts fields for ABI serialization
  */
-function generateBalanceProof(
+function generateSwapBalanceProof(
   balance: bigint,
   amount: bigint,
-  randomness: bigint
+  blinding: bigint
 ): BalanceProof {
-  // Prove balance - amount >= 0
-  const difference = balance - amount;
-  const blinding = poseidonHash([randomness, difference]);
-
-  const balanceCommitment: ECPoint = {
-    x: poseidonHash([difference, blinding]),
-    y: poseidonHash([blinding, difference]),
-  };
-
-  const challenge = poseidonHash([balance, amount, difference, blinding]);
-  const response = difference + challenge * randomness;
-
+  const zkProof = generateZKBalanceProof(balance, amount, blinding);
   return {
-    balanceCommitment,
-    challenge,
-    response,
+    balanceCommitment: zkProof.newBalanceCommitment,
+    challenge: zkProof.consistencyProof.challenge,
+    response: zkProof.consistencyProof.response,
   };
+}
+
+/**
+ * Serialize a range proof to calldata matching ABI:
+ * (Array<(felt252,felt252)>, felt252, Array<felt252>, u8)
+ */
+function serializeRangeProof(proof: RangeProof): string[] {
+  const data: string[] = [];
+  // Array of (felt252, felt252) — bit commitments
+  data.push(proof.bitCommitments.length.toString());
+  for (const c of proof.bitCommitments) {
+    data.push(c.x.toString());
+    data.push(c.y.toString());
+  }
+  // felt252 — aggregate challenge
+  data.push(proof.aggregateChallenge.toString());
+  // Array of felt252 — bit responses
+  data.push(proof.bitResponses.length.toString());
+  for (const r of proof.bitResponses) {
+    data.push(r.toString());
+  }
+  // u8 — numBits
+  data.push(proof.numBits.toString());
+  return data;
+}
+
+/**
+ * Serialize a SwapProofBundle to calldata
+ */
+function serializeSwapProofBundle(bundle: SwapProofBundle): string[] {
+  return [
+    // Range proof (give)
+    ...serializeRangeProof(bundle.giveRangeProof),
+    // Range proof (want)
+    ...serializeRangeProof(bundle.wantRangeProof),
+    // Rate proof: ((felt252,felt252), felt252, felt252, felt252)
+    bundle.rateProof.rateCommitment.x.toString(),
+    bundle.rateProof.rateCommitment.y.toString(),
+    bundle.rateProof.challenge.toString(),
+    bundle.rateProof.responseRate.toString(),
+    bundle.rateProof.responseBlinding.toString(),
+    // Balance proof: ((felt252,felt252), felt252, felt252)
+    bundle.balanceProof.balanceCommitment.x.toString(),
+    bundle.balanceProof.balanceCommitment.y.toString(),
+    bundle.balanceProof.challenge.toString(),
+    bundle.balanceProof.response.toString(),
+  ];
+}
+
+/**
+ * Decode a felt252 back to an asset string (reverse of assetToFelt)
+ */
+function feltToAsset(felt: bigint): AssetId {
+  if (felt === 0n) return "";
+  const bytes: number[] = [];
+  let remaining = felt;
+  while (remaining > 0n) {
+    bytes.unshift(Number(remaining & 0xFFn));
+    remaining >>= 8n;
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/**
+ * Decode a felt252 status enum to SwapOrderStatus
+ */
+function feltToStatus(felt: bigint): SwapOrderStatus {
+  switch (Number(felt)) {
+    case 0: return "Open";
+    case 1: return "PartialFill";
+    case 2: return "Filled";
+    case 3: return "Cancelled";
+    case 4: return "Expired";
+    default: return "Open";
+  }
 }
 
 /**
@@ -443,10 +486,10 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
       balance,
       randomness,
     }: ProofBundleParams): Promise<SwapProofBundle> => {
-      const giveRangeProof = generateRangeProof(giveAmount, randomness);
-      const wantRangeProof = generateRangeProof(wantAmount, randomness);
-      const rateProof = generateRateProof(giveAmount, wantAmount, randomness);
-      const balanceProof = generateBalanceProof(balance, giveAmount, randomness);
+      const giveRangeProof = generateSwapRangeProof(giveAmount, randomness);
+      const wantRangeProof = generateSwapRangeProof(wantAmount, randomness);
+      const rateProof = generateSwapRateProof(giveAmount, wantAmount);
+      const balanceProof = generateSwapBalanceProof(balance, giveAmount, randomness);
 
       return {
         giveRangeProof,
@@ -494,14 +537,14 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         const giveHint = createAEHintFromRandomness(giveAmount, randomness, keyPair.publicKey);
         const wantHint = createAEHintFromRandomness(wantAmount, randomness, keyPair.publicKey);
 
-        // Generate rate commitment
+        // Generate rate commitment using real Pedersen commitment
         const rate = giveAmount > 0n ? (wantAmount * 1000000n) / giveAmount : 0n;
-        const blinding = poseidonHash([randomness, rate]);
-        const rateCommitment = poseidonHash([rate, blinding]);
+        const { commitment: rateCommitmentPoint } = commitWithRandomBlinding(rate);
+        const rateCommitment = poseidonHash([rateCommitmentPoint.x, rateCommitmentPoint.y]);
 
-        // Generate range proofs
-        const rangeProofGive = generateRangeProof(giveAmount, randomness);
-        const rangeProofWant = generateRangeProof(wantAmount, randomness);
+        // Generate real range proofs with EC bit decomposition
+        const rangeProofGive = generateSwapRangeProof(giveAmount, randomness);
+        const rangeProofWant = generateSwapRangeProof(wantAmount, randomScalar());
 
         // Format for contract call
         const call = {
@@ -526,21 +569,29 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
             minFillPct.toString(),
             // expiry_duration
             expiryDuration.toString(),
-            // range_proof_give (simplified)
-            rangeProofGive.numBits.toString(),
-            rangeProofGive.challenge.toString(),
-            // range_proof_want (simplified)
-            rangeProofWant.numBits.toString(),
-            rangeProofWant.challenge.toString(),
+            // range_proof_give (full serialization)
+            ...serializeRangeProof(rangeProofGive),
+            // range_proof_want (full serialization)
+            ...serializeRangeProof(rangeProofWant),
           ],
         };
 
         const response = await sendAsync([call]);
 
-        setState((s) => ({ ...s, isLoading: false }));
+        // Wait for on-chain confirmation
+        await provider.waitForTransaction(response.transaction_hash);
 
-        // Return order ID (would parse from transaction receipt)
-        return 1n; // Placeholder
+        // Fetch the real order ID from contract (last user order)
+        const countResult = await contract.call("get_user_order_count", [address]);
+        const count = Number(countResult);
+        let orderId = 0n;
+        if (count > 0) {
+          const lastOrderResult = await contract.call("get_user_order_at", [address, (count - 1).toString()]);
+          orderId = BigInt(lastOrderResult.toString());
+        }
+
+        setState((s) => ({ ...s, isLoading: false }));
+        return orderId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to create order";
         setState((s) => ({ ...s, isLoading: false, error: message }));
@@ -677,25 +728,32 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
             encryptedWant.c1_y.toString(),
             encryptedWant.c2_x.toString(),
             encryptedWant.c2_y.toString(),
-            // Proof bundle (simplified)
-            proofBundle.giveRangeProof.challenge.toString(),
-            proofBundle.wantRangeProof.challenge.toString(),
-            proofBundle.rateProof.challenge.toString(),
-            proofBundle.balanceProof.challenge.toString(),
+            // Full proof bundle
+            ...serializeSwapProofBundle(proofBundle),
           ],
         };
 
         const response = await sendAsync([call]);
 
+        // Wait for on-chain confirmation and parse match ID from events
+        const receipt = await provider.waitForTransaction(response.transaction_hash);
+        let matchId = 0n;
+        if ("events" in receipt && Array.isArray(receipt.events) && receipt.events.length > 0) {
+          const ev = receipt.events[0];
+          if (ev.data && ev.data.length >= 2) {
+            matchId = BigInt(ev.data[0]) + (BigInt(ev.data[1]) << 128n);
+          }
+        }
+
         setState((s) => ({ ...s, isLoading: false }));
-        return 1n; // Placeholder match ID
+        return matchId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to execute swap";
         setState((s) => ({ ...s, isLoading: false, error: message }));
         throw error;
       }
     },
-    [address, account, contract, sendAsync, generateProofBundle]
+    [address, account, contract, provider, sendAsync, generateProofBundle]
   );
 
   /**
@@ -765,26 +823,34 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
             encryptedFillWant.c1_y.toString(),
             encryptedFillWant.c2_x.toString(),
             encryptedFillWant.c2_y.toString(),
-            // maker_proof (simplified)
-            makerProof.giveRangeProof.challenge.toString(),
-            makerProof.balanceProof.challenge.toString(),
-            // taker_proof (simplified)
-            takerProof.giveRangeProof.challenge.toString(),
-            takerProof.balanceProof.challenge.toString(),
+            // maker_proof (full)
+            ...serializeSwapProofBundle(makerProof),
+            // taker_proof (full)
+            ...serializeSwapProofBundle(takerProof),
           ],
         };
 
         const response = await sendAsync([call]);
 
+        // Wait for on-chain confirmation and parse match ID from events
+        const receipt = await provider.waitForTransaction(response.transaction_hash);
+        let matchId = 0n;
+        if ("events" in receipt && Array.isArray(receipt.events) && receipt.events.length > 0) {
+          const ev = receipt.events[0];
+          if (ev.data && ev.data.length >= 2) {
+            matchId = BigInt(ev.data[0]) + (BigInt(ev.data[1]) << 128n);
+          }
+        }
+
         setState((s) => ({ ...s, isLoading: false }));
-        return 1n;
+        return matchId;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to execute match";
         setState((s) => ({ ...s, isLoading: false, error: message }));
         throw error;
       }
     },
-    [address, account, contract, sendAsync, generateProofBundle]
+    [address, account, contract, provider, sendAsync, generateProofBundle]
   );
 
   /**
@@ -825,7 +891,7 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
 
         const randomness = randomScalar();
         const encryptedAmount = encrypt(amount, keyPair.publicKey, randomness);
-        const rangeProof = generateRangeProof(amount, randomness);
+        const rangeProof = generateSwapRangeProof(amount, randomness);
 
         const call = {
           contractAddress: CONFIDENTIAL_SWAP_ADDRESS,
@@ -836,8 +902,8 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
             encryptedAmount.c1_y.toString(),
             encryptedAmount.c2_x.toString(),
             encryptedAmount.c2_y.toString(),
-            rangeProof.numBits.toString(),
-            rangeProof.challenge.toString(),
+            // Full range proof serialization
+            ...serializeRangeProof(rangeProof),
           ],
         };
 
@@ -880,7 +946,7 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
         ]) as unknown[];
         const balance = BigInt((balanceResult[0] as string | bigint)?.toString() || "0");
 
-        const balanceProof = generateBalanceProof(balance, amount, randomness);
+        const balanceProof = generateSwapBalanceProof(balance, amount, randomness);
 
         const call = {
           contractAddress: CONFIDENTIAL_SWAP_ADDRESS,
@@ -1044,15 +1110,20 @@ export function useConfidentialSwap(): UseConfidentialSwapReturn {
 
 // Helper function to parse order result from contract
 function parseOrderResult(result: unknown): SwapOrder {
-  // Parse contract response into SwapOrder structure
-  // This is simplified - real implementation would handle all fields
   const data = result as unknown[];
 
+  // Parse u256 orderId from two felts (low, high)
+  const orderId = BigInt(data[0]?.toString() || "0");
+
+  // Decode asset felts back to string identifiers
+  const giveAssetFelt = BigInt(data[2]?.toString() || "0");
+  const wantAssetFelt = BigInt(data[3]?.toString() || "0");
+
   return {
-    orderId: BigInt(data[0]?.toString() || "0"),
+    orderId,
     maker: String(data[1] || ""),
-    giveAsset: "SAGE", // Parse from felt
-    wantAsset: "USDC", // Parse from felt
+    giveAsset: feltToAsset(giveAssetFelt) || "SAGE",
+    wantAsset: feltToAsset(wantAssetFelt) || "USDC",
     encryptedGive: {
       c1_x: BigInt(data[4]?.toString() || "0"),
       c1_y: BigInt(data[5]?.toString() || "0"),
@@ -1067,7 +1138,7 @@ function parseOrderResult(result: unknown): SwapOrder {
     },
     rateCommitment: BigInt(data[12]?.toString() || "0"),
     minFillPct: Number(data[13] || 0),
-    status: "Open" as SwapOrderStatus,
+    status: feltToStatus(BigInt(data[14]?.toString() || "0")),
     createdAt: new Date(Number(data[15] || 0) * 1000),
     expiresAt: data[16] ? new Date(Number(data[16]) * 1000) : null,
   };

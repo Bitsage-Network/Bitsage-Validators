@@ -8,10 +8,10 @@ import { getConfig } from '@/lib/env';
 import {
   getValidatorStatus,
   getGPUMetrics,
+  getWorkerUptime,
+  getWorkerStatus,
   getJobs,
   getJobStatus,
-  getProofs,
-  getProof,
   getNetworkStats,
   getFaucetStatus,
   getFaucetConfig,
@@ -27,7 +27,6 @@ import {
   ValidatorStatus,
   GPUMetrics,
   JobInfo,
-  ProofInfo,
   NetworkStats,
   FaucetStatus,
   FaucetConfig,
@@ -143,6 +142,32 @@ export function useGPUMetrics() {
   });
 }
 
+export function useWorkerUptime(address: string | undefined, periodHours?: number) {
+  return useQuery({
+    queryKey: ['workerUptime', address, periodHours],
+    queryFn: async () => {
+      const response = await getWorkerUptime(address!, periodHours);
+      return response.data;
+    },
+    enabled: !!address,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}
+
+export function useWorkerStatus(address: string | undefined) {
+  return useQuery({
+    queryKey: ['workerStatus', address],
+    queryFn: async () => {
+      const response = await getWorkerStatus(address!);
+      return response.data;
+    },
+    enabled: !!address,
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+}
+
 // ============================================================================
 // Price Feed Hooks
 // ============================================================================
@@ -221,72 +246,40 @@ export function useSageUsdValue(amountSage: number | string | undefined) {
 // Privacy Network Graph Hooks
 // ============================================================================
 
-// Fallback mock data for network visualization
-const MOCK_NETWORK_GRAPH: NetworkGraphResponse = {
-  nodes: [
-    { id: "you", type: "you", label: "0x06df...fefe", x: 300, y: 300, balance: "258.06", isPrivate: true },
-    { id: "pool_1", type: "pool", label: "0x04a2...3b1c", x: 200, y: 220, tvl: "125,430", validators: 24 },
-    { id: "pool_2", type: "pool", label: "0x07c1...8f2d", x: 380, y: 240, tvl: "89,200", validators: 18 },
-    { id: "pool_3", type: "pool", label: "0x03e5...1a4b", x: 180, y: 380, tvl: "67,800", validators: 12 },
-    { id: "pool_4", type: "pool", label: "0x09f3...5c2e", x: 400, y: 380, tvl: "234,500", validators: 35 },
-    { id: "validator_1", type: "validator", label: "0x0812...4f3a", x: 120, y: 160, earnings: "12.5/day", uptime: "99.8%" },
-    { id: "validator_2", type: "validator", label: "0x0a34...7e1c", x: 260, y: 140, earnings: "45.2/day", uptime: "99.9%" },
-    { id: "validator_3", type: "validator", label: "0x0c56...9d2b", x: 440, y: 160, earnings: "78.3/day", uptime: "100%" },
-    { id: "validator_4", type: "validator", label: "0x0e78...1f4d", x: 500, y: 280, earnings: "23.1/day", uptime: "99.5%" },
-    { id: "validator_5", type: "validator", label: "0x0291...3a5e", x: 100, y: 300, earnings: "56.7/day", uptime: "99.7%" },
-    { id: "client_1", type: "client", label: "0x0a19...1234", x: 520, y: 180, jobs: 156, spent: "2,340", isPrivate: true },
-    { id: "client_2", type: "client", label: "0x0c3b...3456", x: 580, y: 340, jobs: 89, spent: "1,205", isPrivate: true },
-  ],
-  edges: [
-    { from: "you", to: "pool_1", type: "stake", amount: "100", isPrivate: true, isYourActivity: true },
-    { from: "you", to: "pool_2", type: "stake", amount: "50", isPrivate: true, isYourActivity: true },
-    { from: "you", to: "pool_3", type: "stake", amount: "75", isPrivate: true, isYourActivity: true },
-    { from: "you", to: "pool_4", type: "delegation", amount: "200", isPrivate: true, isYourActivity: true },
-    { from: "pool_1", to: "validator_1", type: "delegation", amount: "5,000", isPrivate: false, isYourActivity: false },
-    { from: "pool_1", to: "validator_2", type: "delegation", amount: "8,000", isPrivate: false, isYourActivity: false },
-    { from: "pool_2", to: "validator_3", type: "delegation", amount: "6,000", isPrivate: false, isYourActivity: false },
-    { from: "pool_3", to: "validator_4", type: "delegation", amount: "4,000", isPrivate: false, isYourActivity: false },
-    { from: "pool_4", to: "validator_5", type: "delegation", amount: "10,000", isPrivate: false, isYourActivity: false },
-    { from: "client_1", to: "you", type: "payment", amount: "25", isPrivate: true, isYourActivity: true },
-    { from: "client_2", to: "validator_3", type: "job", amount: "15", isPrivate: true, isYourActivity: false },
-  ],
+const EMPTY_NETWORK_GRAPH: NetworkGraphResponse = {
+  nodes: [],
+  edges: [],
   your_node_id: "you",
   last_updated: new Date().toISOString(),
-  is_mock: true,
+  is_mock: false,
 };
 
 /**
  * Hook for privacy network graph visualization
- * Returns network nodes/edges from API with fallback to mock data
+ * Returns network nodes/edges from API, empty graph when wallet not connected
  */
 export function usePrivacyNetworkGraph(address: string | undefined) {
   const query = useQuery({
     queryKey: ['privacyNetworkGraph', address],
     queryFn: async () => {
-      if (!address) {
-        return { ...MOCK_NETWORK_GRAPH, is_mock: true };
-      }
-      try {
-        const response = await getPrivacyNetworkGraph(address);
-        return { ...response.data, is_mock: false };
-      } catch (error) {
-        console.warn('[NetworkGraph] Failed to fetch, using mock data');
-        return { ...MOCK_NETWORK_GRAPH, is_mock: true };
-      }
+      const response = await getPrivacyNetworkGraph(address!);
+      return { ...response.data, is_mock: false };
     },
-    enabled: true, // Always enabled, returns mock if no address
-    refetchInterval: 60000, // Refresh every 60 seconds
+    enabled: !!address,
+    refetchInterval: 60000,
     staleTime: 30000,
     retry: 1,
   });
 
   return {
-    nodes: query.data?.nodes ?? MOCK_NETWORK_GRAPH.nodes,
-    edges: query.data?.edges ?? MOCK_NETWORK_GRAPH.edges,
+    nodes: query.data?.nodes ?? EMPTY_NETWORK_GRAPH.nodes,
+    edges: query.data?.edges ?? EMPTY_NETWORK_GRAPH.edges,
     yourNodeId: query.data?.your_node_id ?? 'you',
     lastUpdated: query.data?.last_updated,
-    isMock: query.data?.is_mock ?? true,
+    isMock: false,
     isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
     refetch: query.refetch,
   };
 }
@@ -357,37 +350,6 @@ export function useCancelJob() {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
     },
-  });
-}
-
-// ============================================================================
-// Proofs Hooks
-// ============================================================================
-
-export function useProofs(params?: {
-  page?: number;
-  per_page?: number;
-  status?: string;
-}) {
-  return useQuery({
-    queryKey: ['proofs', params],
-    queryFn: async () => {
-      const response = await getProofs(params);
-      return response.data;
-    },
-    refetchInterval: 10000,
-    staleTime: 5000,
-  });
-}
-
-export function useProof(proofId: string) {
-  return useQuery({
-    queryKey: ['proof', proofId],
-    queryFn: async () => {
-      const response = await getProof(proofId);
-      return response.data;
-    },
-    enabled: !!proofId,
   });
 }
 
