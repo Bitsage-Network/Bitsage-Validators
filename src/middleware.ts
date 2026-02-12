@@ -4,23 +4,23 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Redirect /login to /connect
-  if (pathname === '/login') {
+  // Redirect /login and /auth to /connect (password protection removed)
+  if (pathname === '/login' || pathname === '/auth') {
     return NextResponse.redirect(new URL('/connect', request.url));
   }
 
   // Skip auth check for public pages
-  const publicPaths = ['/auth', '/connect', '/'];
+  const publicPaths = ['/connect', '/'];
   if (publicPaths.includes(pathname)) {
     return NextResponse.next();
   }
 
-  // Check for auth cookie OR wallet connection (via demo mode flag in cookie)
-  const authCookie = request.cookies.get('demo-auth');
+  // Check for wallet connection only (demo password protection disabled)
+  // const authCookie = request.cookies.get('demo-auth');
   const walletConnected = request.cookies.get('wallet-verified');
 
-  if ((!authCookie || authCookie.value !== 'obelysk-verified') && !walletConnected) {
-    // Redirect to connect page if not authenticated
+  if (!walletConnected) {
+    // Redirect to connect page if wallet not connected
     return NextResponse.redirect(new URL('/connect', request.url));
   }
 
