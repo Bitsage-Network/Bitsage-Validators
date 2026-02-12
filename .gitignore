@@ -73,3 +73,4 @@ contracts/target/
 # Sensitive contract files
 contracts/account.json
 contracts/keystore.json
+.env*.local

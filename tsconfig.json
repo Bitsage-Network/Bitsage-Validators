@@ -38,6 +38,11 @@
   ],
   "exclude": [
     "node_modules",
-    "packages"
+    "packages",
+    "apps",
+    "crates",
+    "rust-node",
+    "contracts",
+    "deploy"
   ]
 }
