@@ -1,0 +1,217 @@
+[
+  {
+    "type": "impl",
+    "name": "GovernanceTreasuryImpl",
+    "interface_name": "sage_contracts::governance::governance_treasury::IGovernanceTreasury"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      { "name": "low", "type": "core::integer::u128" },
+      { "name": "high", "type": "core::integer::u128" }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      { "name": "False", "type": "()" },
+      { "name": "True", "type": "()" }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::governance::governance_treasury::ProposalType",
+    "variants": [
+      { "name": "Treasury", "type": "()" },
+      { "name": "Upgrade", "type": "()" },
+      { "name": "Parameter", "type": "()" },
+      { "name": "Emergency", "type": "()" }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::governance::governance_treasury::Proposal",
+    "members": [
+      { "name": "id", "type": "core::integer::u256" },
+      { "name": "proposer", "type": "core::starknet::contract_address::ContractAddress" },
+      { "name": "title", "type": "core::felt252" },
+      { "name": "description", "type": "core::felt252" },
+      { "name": "target", "type": "core::starknet::contract_address::ContractAddress" },
+      { "name": "value", "type": "core::integer::u256" },
+      { "name": "calldata", "type": "core::felt252" },
+      { "name": "votes_for", "type": "core::integer::u256" },
+      { "name": "votes_against", "type": "core::integer::u256" },
+      { "name": "start_time", "type": "core::integer::u64" },
+      { "name": "end_time", "type": "core::integer::u64" },
+      { "name": "execution_time", "type": "core::integer::u64" },
+      { "name": "executed", "type": "core::bool" },
+      { "name": "cancelled", "type": "core::bool" },
+      { "name": "proposal_type", "type": "sage_contracts::governance::governance_treasury::ProposalType" }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::governance::governance_treasury::GovernanceConfig",
+    "members": [
+      { "name": "voting_delay", "type": "core::integer::u64" },
+      { "name": "voting_period", "type": "core::integer::u64" },
+      { "name": "execution_delay", "type": "core::integer::u64" },
+      { "name": "quorum_threshold", "type": "core::integer::u256" },
+      { "name": "proposal_threshold", "type": "core::integer::u256" }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::governance::governance_treasury::IGovernanceTreasury",
+    "items": [
+      {
+        "type": "function",
+        "name": "get_proposal",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" }
+        ],
+        "outputs": [
+          { "type": "sage_contracts::governance::governance_treasury::Proposal" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_voting_power",
+        "inputs": [
+          { "name": "account", "type": "core::starknet::contract_address::ContractAddress" }
+        ],
+        "outputs": [
+          { "type": "core::integer::u256" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "can_execute",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" }
+        ],
+        "outputs": [
+          { "type": "core::bool" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_proposal_count",
+        "inputs": [],
+        "outputs": [
+          { "type": "core::integer::u256" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "has_voted",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" },
+          { "name": "voter", "type": "core::starknet::contract_address::ContractAddress" }
+        ],
+        "outputs": [
+          { "type": "core::bool" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_config",
+        "inputs": [],
+        "outputs": [
+          { "type": "sage_contracts::governance::governance_treasury::GovernanceConfig" }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "propose",
+        "inputs": [
+          { "name": "title", "type": "core::felt252" },
+          { "name": "description", "type": "core::felt252" },
+          { "name": "target", "type": "core::starknet::contract_address::ContractAddress" },
+          { "name": "value", "type": "core::integer::u256" },
+          { "name": "calldata", "type": "core::felt252" },
+          { "name": "proposal_type", "type": "sage_contracts::governance::governance_treasury::ProposalType" }
+        ],
+        "outputs": [
+          { "type": "core::integer::u256" }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "vote",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" },
+          { "name": "support", "type": "core::bool" },
+          { "name": "voting_power", "type": "core::integer::u256" }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_proposal",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "cancel_proposal",
+        "inputs": [
+          { "name": "proposal_id", "type": "core::integer::u256" }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::governance::governance_treasury::GovernanceTreasury::ProposalCreated",
+    "kind": "struct",
+    "members": [
+      { "name": "proposal_id", "type": "core::integer::u256", "kind": "key" },
+      { "name": "proposer", "type": "core::starknet::contract_address::ContractAddress", "kind": "data" },
+      { "name": "title", "type": "core::felt252", "kind": "data" },
+      { "name": "proposal_type", "type": "sage_contracts::governance::governance_treasury::ProposalType", "kind": "data" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::governance::governance_treasury::GovernanceTreasury::VoteCast",
+    "kind": "struct",
+    "members": [
+      { "name": "proposal_id", "type": "core::integer::u256", "kind": "key" },
+      { "name": "voter", "type": "core::starknet::contract_address::ContractAddress", "kind": "key" },
+      { "name": "support", "type": "core::bool", "kind": "data" },
+      { "name": "voting_power", "type": "core::integer::u256", "kind": "data" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::governance::governance_treasury::GovernanceTreasury::ProposalExecuted",
+    "kind": "struct",
+    "members": [
+      { "name": "proposal_id", "type": "core::integer::u256", "kind": "key" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::governance::governance_treasury::GovernanceTreasury::ProposalCancelled",
+    "kind": "struct",
+    "members": [
+      { "name": "proposal_id", "type": "core::integer::u256", "kind": "key" }
+    ]
+  }
+]

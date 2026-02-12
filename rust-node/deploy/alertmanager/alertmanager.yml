@@ -1,0 +1,62 @@
+# Alertmanager Configuration for BitSage
+global:
+  resolve_timeout: 5m
+  # SMTP settings for email notifications
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alerts@bitsage.network'
+  smtp_auth_username: 'alerts@bitsage.network'
+  smtp_auth_password: ''  # Set via environment variable
+
+# Route configuration
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  routes:
+    # Critical alerts go to PagerDuty/Slack immediately
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts
+    - match:
+        severity: warning
+      receiver: 'warning-receiver'
+      repeat_interval: 4h
+
+# Inhibition rules
+inhibit_rules:
+  # If coordinator is down, don't send other alerts
+  - source_match:
+      alertname: 'CoordinatorDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['cluster']
+
+# Receivers
+receivers:
+  - name: 'default-receiver'
+    # Add your notification channels here
+
+  - name: 'critical-receiver'
+    # Slack webhook for critical alerts
+    slack_configs:
+      - api_url: ''  # Set your Slack webhook URL
+        channel: '#bitsage-alerts'
+        title: '{{ .Status | toUpper }} | {{ .CommonLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+
+  - name: 'warning-receiver'
+    # Email for warning alerts
+    email_configs:
+      - to: 'ops@bitsage.network'
+        send_resolved: true
+
+# Templates
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

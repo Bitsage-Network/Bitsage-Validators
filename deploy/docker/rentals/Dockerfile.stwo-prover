@@ -1,0 +1,226 @@
+# BitSage STWO Prover Development Environment
+# GPU rental environment for ZK proof development with STWO and Cairo
+#
+# Build: docker build -f Dockerfile.stwo-prover -t bitsage/rental-stwo:latest .
+# Run: docker run --gpus all -p 2222:22 -p 8888:8888 \
+#      -e SSH_PASSWORD=secret bitsage/rental-stwo:latest
+
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="STWO Prover development environment for ZK proofs"
+LABEL bitsage.template_id="stwo-prover-dev"
+LABEL bitsage.min_vram_gb="8"
+LABEL bitsage.rate_sage_per_hour="40"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+
+# Rust environment
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+ENV RUST_BACKTRACE=1
+
+# Cairo/Starknet environment
+ENV STARKNET_NETWORK=sepolia
+ENV SCARB_VERSION=2.6.3
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # SSH Server
+    openssh-server \
+    # Core utilities
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    gnupg \
+    sudo \
+    # Python
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    # Build tools
+    build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
+    libssl-dev \
+    # Development tools
+    htop \
+    nvtop \
+    vim \
+    nano \
+    tmux \
+    tree \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    rustup default stable && \
+    rustup target add wasm32-unknown-unknown
+
+# Install Scarb (Cairo package manager)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v ${SCARB_VERSION}
+ENV PATH="/root/.local/bin:$PATH"
+
+# Install Starknet Foundry (snforge, sncast)
+RUN curl -L https://raw.githubusercontent.com/foundry-rs/starknet-foundry/master/scripts/install.sh | sh && \
+    snfoundryup || true
+ENV PATH="/root/.starknet-foundry/bin:$PATH"
+
+# Install starkli
+RUN curl https://get.starkli.sh | sh && \
+    /root/.starkli/bin/starkliup || true
+ENV PATH="/root/.starkli/bin:$PATH"
+
+# Upgrade pip and install JupyterLab
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install \
+    jupyterlab>=4.0.0 \
+    ipykernel \
+    ipywidgets \
+    # Cairo/Starknet Python tools
+    starknet-py \
+    cairo-lang \
+    # ZK development utilities
+    py-ecc \
+    galois \
+    numpy \
+    scipy \
+    sympy \
+    # Utilities
+    requests \
+    httpx \
+    tqdm \
+    pyyaml \
+    python-dotenv \
+    rich
+
+# Clone STWO prover
+WORKDIR /workspace
+RUN git clone https://github.com/starkware-libs/stwo.git && \
+    cd stwo && \
+    cargo build --release || echo "STWO build optional - may require more setup"
+
+# Clone stwo-cairo for Cairo integration
+RUN git clone https://github.com/starkware-libs/stwo-cairo.git || echo "stwo-cairo optional"
+
+# Create project directories
+RUN mkdir -p /workspace/projects /workspace/notebooks /workspace/proofs
+
+# Create user
+RUN useradd -m -s /bin/bash -G sudo bitsage && \
+    echo "bitsage:bitsage" | chpasswd && \
+    echo "bitsage ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup JupyterLab configuration
+RUN mkdir -p /root/.jupyter && \
+    echo "c.ServerApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.port = 8888" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.open_browser = False" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.allow_root = True" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.allow_origin = '*'" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.token = ''" >> /root/.jupyter/jupyter_lab_config.py
+
+# Create README
+RUN echo '# BitSage STWO Prover Development\n\
+\n\
+This environment includes:\n\
+- STWO Prover (GPU-accelerated ZK proofs)\n\
+- Scarb (Cairo package manager)\n\
+- Starknet Foundry (snforge, sncast)\n\
+- starkli CLI\n\
+- Cairo/Starknet Python SDK\n\
+\n\
+## Quick Start\n\
+\n\
+### Create a Cairo project\n\
+```bash\n\
+scarb new my_project\n\
+cd my_project\n\
+scarb build\n\
+```\n\
+\n\
+### Run tests with Starknet Foundry\n\
+```bash\n\
+snforge test\n\
+```\n\
+\n\
+### Deploy to Starknet\n\
+```bash\n\
+sncast declare --contract-name MyContract\n\
+sncast deploy --class-hash <class_hash>\n\
+```\n\
+\n\
+### STWO Proving (when integrated)\n\
+```rust\n\
+use stwo_prover::core::prover::prove;\n\
+// See /workspace/stwo for examples\n\
+```\n\
+\n\
+### GPU Acceleration\n\
+STWO can utilize GPU for faster proof generation.\n\
+Check CUDA availability: `nvidia-smi`\n\
+' > /workspace/README.md
+
+# Create sample Cairo project
+WORKDIR /workspace/projects
+RUN scarb new hello_cairo && \
+    cd hello_cairo && \
+    echo 'fn main() -> felt252 { 42 }' > src/lib.cairo || true
+
+WORKDIR /workspace
+
+EXPOSE 22 8888
+
+# Startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Set SSH password if provided\n\
+if [ -n "$SSH_PASSWORD" ]; then\n\
+    echo "root:$SSH_PASSWORD" | chpasswd\n\
+    echo "bitsage:$SSH_PASSWORD" | chpasswd\n\
+fi\n\
+\n\
+# Set Jupyter token if provided\n\
+if [ -n "$JUPYTER_TOKEN" ]; then\n\
+    sed -i "s/c.ServerApp.token = .*/c.ServerApp.token = '"'"'$JUPYTER_TOKEN'"'"'/" /root/.jupyter/jupyter_lab_config.py\n\
+fi\n\
+\n\
+# Start SSH service\n\
+/usr/sbin/sshd\n\
+echo "SSH server started on port 22"\n\
+\n\
+# Display environment info\n\
+echo "Environment ready:"\n\
+echo "  - Rust: $(rustc --version)"\n\
+echo "  - Scarb: $(scarb --version 2>/dev/null || echo "not installed")"\n\
+echo "  - snforge: $(snforge --version 2>/dev/null || echo "not installed")"\n\
+echo "  - starkli: $(starkli --version 2>/dev/null || echo "not installed")"\n\
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "  - GPU: not available"\n\
+\n\
+# Start JupyterLab\n\
+echo "Starting JupyterLab on port 8888..."\n\
+exec jupyter lab --allow-root\n\
+' > /start.sh && chmod +x /start.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8888/api || exit 1
+
+CMD ["/start.sh"]

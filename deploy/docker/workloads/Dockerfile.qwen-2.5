@@ -1,0 +1,80 @@
+# BitSage Qwen 2.5 LLM Workload
+# GPU-accelerated Qwen 2.5 inference with vLLM
+#
+# Build: docker build -f Dockerfile.qwen-2.5 -t bitsage/qwen-2.5:latest .
+# Run: docker run --gpus all -p 8080:8080 bitsage/qwen-2.5:latest
+
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Qwen 2.5 LLM inference with vLLM"
+LABEL bitsage.workload_id="qwen-2.5-coder"
+LABEL bitsage.min_vram_gb="16"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Environment configuration
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/models
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip
+
+# Install vLLM and dependencies
+RUN pip install \
+    vllm==0.4.0 \
+    transformers \
+    accelerate \
+    huggingface_hub \
+    fastapi \
+    uvicorn
+
+# Create model cache directory
+RUN mkdir -p /models
+
+# Expose API port
+EXPOSE 8080
+
+WORKDIR /workspace
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+MODEL="${MODEL_NAME:-Qwen/Qwen2.5-Coder-7B-Instruct}"\n\
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"\n\
+GPU_MEMORY="${GPU_MEMORY_UTILIZATION:-0.9}"\n\
+\n\
+echo "Starting Qwen 2.5 with vLLM..."\n\
+echo "Model: $MODEL"\n\
+echo "Max context: $MAX_MODEL_LEN"\n\
+\n\
+python -m vllm.entrypoints.openai.api_server \\\n\
+    --model "$MODEL" \\\n\
+    --host 0.0.0.0 \\\n\
+    --port 8080 \\\n\
+    --max-model-len "$MAX_MODEL_LEN" \\\n\
+    --gpu-memory-utilization "$GPU_MEMORY" \\\n\
+    --trust-remote-code\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["/workspace/start.sh"]

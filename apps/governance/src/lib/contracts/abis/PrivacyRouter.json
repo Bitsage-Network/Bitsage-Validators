@@ -1,0 +1,4318 @@
+[
+  {
+    "type": "impl",
+    "name": "PrivacyRouterImpl",
+    "interface_name": "sage_contracts::obelysk::privacy_router::IPrivacyRouter"
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::ECPoint",
+    "members": [
+      {
+        "name": "x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "y",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::ElGamalCiphertext",
+    "members": [
+      {
+        "name": "c1_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "c1_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "c2_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "c2_y",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::EncryptionProof",
+    "members": [
+      {
+        "name": "commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      },
+      {
+        "name": "range_proof_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::pedersen_commitments::PedersenCommitment",
+    "members": [
+      {
+        "name": "commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::array::Span::<core::felt252>",
+    "members": [
+      {
+        "name": "snapshot",
+        "type": "@core::array::Array::<core::felt252>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::TransferProof",
+    "members": [
+      {
+        "name": "sender_proof",
+        "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+      },
+      {
+        "name": "receiver_proof",
+        "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+      },
+      {
+        "name": "balance_proof",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::PrivateTransfer",
+    "members": [
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "sender_delta",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "proof",
+        "type": "sage_contracts::obelysk::elgamal::TransferProof"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::same_encryption::SameEncryption3Proof",
+    "members": [
+      {
+        "name": "al1_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "al1_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar1_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar1_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "al2_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "al2_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar2_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar2_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "al3_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "al3_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar3_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ar3_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sb",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sr1",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sr2",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sr3",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::PrivateTransferWithAudit",
+    "members": [
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "sender_encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "receiver_encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "auditor_encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "same_encryption_proof",
+        "type": "sage_contracts::obelysk::same_encryption::SameEncryption3Proof"
+      },
+      {
+        "name": "transfer_proof",
+        "type": "sage_contracts::obelysk::elgamal::TransferProof"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::EncryptedBalance",
+    "members": [
+      {
+        "name": "ciphertext",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "pending_in",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "pending_out",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::PrivateAccount",
+    "members": [
+      {
+        "name": "public_key",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "encrypted_balance",
+        "type": "sage_contracts::obelysk::elgamal::EncryptedBalance"
+      },
+      {
+        "name": "pending_transfers",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "last_rollup_epoch",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "is_registered",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::PrivateWorkerPayment",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "is_claimed",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::BatchDepositItem",
+    "members": [
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "proof",
+        "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::RagequitProof",
+    "members": [
+      {
+        "name": "commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      },
+      {
+        "name": "claimed_amount",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "balance_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::RagequitRecord",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::AuditorInfo",
+    "members": [
+      {
+        "name": "address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "public_key",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "registered_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "is_active",
+        "type": "core::bool"
+      },
+      {
+        "name": "total_approvals",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "list_index",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::obelysk::privacy_router::AuditRequestType",
+    "variants": [
+      {
+        "name": "LargeTransfer",
+        "type": "()"
+      },
+      {
+        "name": "Disclosure",
+        "type": "()"
+      },
+      {
+        "name": "Freeze",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::obelysk::privacy_router::AuditRequestStatus",
+    "variants": [
+      {
+        "name": "Pending",
+        "type": "()"
+      },
+      {
+        "name": "Approved",
+        "type": "()"
+      },
+      {
+        "name": "Rejected",
+        "type": "()"
+      },
+      {
+        "name": "Expired",
+        "type": "()"
+      },
+      {
+        "name": "Executed",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::AuditRequest",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "request_type",
+        "type": "sage_contracts::obelysk::privacy_router::AuditRequestType"
+      },
+      {
+        "name": "requester",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "target_nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "created_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "expires_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "approval_count",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "required_approvals",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "status",
+        "type": "sage_contracts::obelysk::privacy_router::AuditRequestStatus"
+      },
+      {
+        "name": "executed",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ThresholdProof",
+    "members": [
+      {
+        "name": "difference_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "range_proof_data",
+        "type": "core::array::Span::<core::felt252>"
+      },
+      {
+        "name": "blinding_diff",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::VolumeProof",
+    "members": [
+      {
+        "name": "nullifiers",
+        "type": "core::array::Span::<core::felt252>"
+      },
+      {
+        "name": "sum_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "sum_blinding",
+        "type": "core::felt252"
+      },
+      {
+        "name": "range_proof_data",
+        "type": "core::array::Span::<core::felt252>"
+      },
+      {
+        "name": "epoch_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch_end",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::InequalityProof",
+    "members": [
+      {
+        "name": "difference_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "r_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::array::Span::<sage_contracts::obelysk::privacy_router::InequalityProof>",
+    "members": [
+      {
+        "name": "snapshot",
+        "type": "@core::array::Array::<sage_contracts::obelysk::privacy_router::InequalityProof>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::NonTransactionProof",
+    "members": [
+      {
+        "name": "excluded_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "nullifiers",
+        "type": "core::array::Span::<core::felt252>"
+      },
+      {
+        "name": "inequality_proofs",
+        "type": "core::array::Span::<sage_contracts::obelysk::privacy_router::InequalityProof>"
+      },
+      {
+        "name": "epoch_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch_end",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "nullifier_set_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::array::Span::<core::integer::u256>",
+    "members": [
+      {
+        "name": "snapshot",
+        "type": "@core::array::Array::<core::integer::u256>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::DecryptionProof",
+    "members": [
+      {
+        "name": "r_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::DisclosedTransaction",
+    "members": [
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "decryption_proof",
+        "type": "sage_contracts::obelysk::privacy_router::DecryptionProof"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "core::array::Span::<sage_contracts::obelysk::privacy_router::DisclosedTransaction>",
+    "members": [
+      {
+        "name": "snapshot",
+        "type": "@core::array::Array::<sage_contracts::obelysk::privacy_router::DisclosedTransaction>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ComplianceBundle",
+    "members": [
+      {
+        "name": "disclosure_request_ids",
+        "type": "core::array::Span::<core::integer::u256>"
+      },
+      {
+        "name": "disclosed_transactions",
+        "type": "core::array::Span::<sage_contracts::obelysk::privacy_router::DisclosedTransaction>"
+      },
+      {
+        "name": "total_volume",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "transaction_count",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "period_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "period_end",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::obelysk::privacy_router::ExPostProofType",
+    "variants": [
+      {
+        "name": "Volume",
+        "type": "()"
+      },
+      {
+        "name": "NonTransaction",
+        "type": "()"
+      },
+      {
+        "name": "Compliance",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ExPostProofRecord",
+    "members": [
+      {
+        "name": "proof_id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "proof_type",
+        "type": "sage_contracts::obelysk::privacy_router::ExPostProofType"
+      },
+      {
+        "name": "prover",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "verified_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch_end",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "proof_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "volume_threshold",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "excluded_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::elgamal::AEHint",
+    "members": [
+      {
+        "name": "c0",
+        "type": "core::felt252"
+      },
+      {
+        "name": "c1",
+        "type": "core::felt252"
+      },
+      {
+        "name": "c2",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::AccountHints",
+    "members": [
+      {
+        "name": "balance_hint",
+        "type": "sage_contracts::obelysk::elgamal::AEHint"
+      },
+      {
+        "name": "pending_in_hint",
+        "type": "sage_contracts::obelysk::elgamal::AEHint"
+      },
+      {
+        "name": "pending_out_hint",
+        "type": "sage_contracts::obelysk::elgamal::AEHint"
+      },
+      {
+        "name": "hint_nonce",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::StealthAddress",
+    "members": [
+      {
+        "name": "ephemeral_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "stealth_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "view_tag",
+        "type": "core::integer::u16"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::UnifiedStegProof",
+    "members": [
+      {
+        "name": "commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      },
+      {
+        "name": "range_proof_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "aux_commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "aux_commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "aux_response",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::StegTransaction",
+    "members": [
+      {
+        "name": "commitment",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sender_stealth",
+        "type": "sage_contracts::obelysk::privacy_router::StealthAddress"
+      },
+      {
+        "name": "receiver_stealth",
+        "type": "sage_contracts::obelysk::privacy_router::StealthAddress"
+      },
+      {
+        "name": "sender_ciphertext",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "receiver_ciphertext",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "payload_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "proof",
+        "type": "sage_contracts::obelysk::privacy_router::UnifiedStegProof"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::StegRecord",
+    "members": [
+      {
+        "name": "commitment",
+        "type": "core::felt252"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::RingMember",
+    "members": [
+      {
+        "name": "public_key",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "stealth_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "amount_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "output_index",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::KeyImage",
+    "members": [
+      {
+        "name": "x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "y",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::RingSignature",
+    "members": [
+      {
+        "name": "key_image",
+        "type": "sage_contracts::obelysk::privacy_router::KeyImage"
+      },
+      {
+        "name": "c0",
+        "type": "core::felt252"
+      },
+      {
+        "name": "responses_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "ring_size",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ConfidentialRingSignature",
+    "members": [
+      {
+        "name": "ring_sig",
+        "type": "sage_contracts::obelysk::privacy_router::RingSignature"
+      },
+      {
+        "name": "amount_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "blinding_proof_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "range_proof_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::MixingInput",
+    "members": [
+      {
+        "name": "ring",
+        "type": "core::array::Array::<sage_contracts::obelysk::privacy_router::RingMember>"
+      },
+      {
+        "name": "signature",
+        "type": "sage_contracts::obelysk::privacy_router::ConfidentialRingSignature"
+      },
+      {
+        "name": "ring_member_indices",
+        "type": "core::array::Array::<core::integer::u64>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::MixingOutput",
+    "members": [
+      {
+        "name": "one_time_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "amount_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "encrypted_amount",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "stealth_address",
+        "type": "sage_contracts::obelysk::privacy_router::StealthAddress"
+      },
+      {
+        "name": "output_index",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "range_proof_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::MixingPoolOutput",
+    "members": [
+      {
+        "name": "output",
+        "type": "sage_contracts::obelysk::privacy_router::MixingOutput"
+      },
+      {
+        "name": "spent",
+        "type": "core::bool"
+      },
+      {
+        "name": "creating_tx",
+        "type": "core::felt252"
+      },
+      {
+        "name": "spending_tx",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::MixingTxRecord",
+    "members": [
+      {
+        "name": "tx_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "input_count",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "output_count",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "fee",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::BatchTransferItem",
+    "members": [
+      {
+        "name": "sender_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "receiver_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "sender_ciphertext",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "receiver_ciphertext",
+        "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+      },
+      {
+        "name": "amount_commitment",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "index",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::BatchTransferProof",
+    "members": [
+      {
+        "name": "commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "responses_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "range_proof_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "balance_proof_hash",
+        "type": "core::felt252"
+      },
+      {
+        "name": "batch_binding",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::BatchTransferRecord",
+    "members": [
+      {
+        "name": "batch_id",
+        "type": "core::felt252"
+      },
+      {
+        "name": "transfer_count",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "has_auditor",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ViewKeyDerivationProof",
+    "members": [
+      {
+        "name": "commitment_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "challenge",
+        "type": "core::felt252"
+      },
+      {
+        "name": "response",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ThresholdDisclosure",
+    "members": [
+      {
+        "name": "threshold",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "is_above",
+        "type": "core::bool"
+      },
+      {
+        "name": "proof_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ViewKeyRegistration",
+    "members": [
+      {
+        "name": "master_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "view_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "registered_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "active",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::ViewKeyGrant",
+    "members": [
+      {
+        "name": "grantor",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "grantee_id",
+        "type": "core::felt252"
+      },
+      {
+        "name": "view_pubkey",
+        "type": "sage_contracts::obelysk::elgamal::ECPoint"
+      },
+      {
+        "name": "expires_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "granted_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "revoked",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::NullifierTreeState",
+    "members": [
+      {
+        "name": "root",
+        "type": "core::felt252"
+      },
+      {
+        "name": "next_index",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "filled_subtrees",
+        "type": "core::array::Array::<core::felt252>"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::privacy_router::NullifierMerkleProof",
+    "members": [
+      {
+        "name": "path",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "indices",
+        "type": "core::array::Array::<core::bool>"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252"
+      },
+      {
+        "name": "root",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::lean_imt::LeanIMTBatchResult",
+    "members": [
+      {
+        "name": "new_root",
+        "type": "core::felt252"
+      },
+      {
+        "name": "new_size",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "new_depth",
+        "type": "core::integer::u8"
+      },
+      {
+        "name": "start_index",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "inserted_count",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::lean_imt::LeanIMTState",
+    "members": [
+      {
+        "name": "root",
+        "type": "core::felt252"
+      },
+      {
+        "name": "size",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "depth",
+        "type": "core::integer::u8"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::lean_imt::LeanIMTProof",
+    "members": [
+      {
+        "name": "siblings",
+        "type": "core::array::Array::<core::felt252>"
+      },
+      {
+        "name": "path_indices",
+        "type": "core::array::Array::<core::bool>"
+      },
+      {
+        "name": "leaf",
+        "type": "core::felt252"
+      },
+      {
+        "name": "root",
+        "type": "core::felt252"
+      },
+      {
+        "name": "tree_size",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::obelysk::privacy_router::IPrivacyRouter",
+    "items": [
+      {
+        "type": "function",
+        "name": "register_account",
+        "inputs": [
+          {
+            "name": "public_key",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "deposit",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          },
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "withdraw",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_delta",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          },
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          },
+          {
+            "name": "remaining_balance_commitment",
+            "type": "sage_contracts::obelysk::pedersen_commitments::PedersenCommitment"
+          },
+          {
+            "name": "range_proof_data",
+            "type": "core::array::Span::<core::felt252>"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "private_transfer",
+        "inputs": [
+          {
+            "name": "transfer",
+            "type": "sage_contracts::obelysk::privacy_router::PrivateTransfer"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "private_transfer_with_audit",
+        "inputs": [
+          {
+            "name": "transfer",
+            "type": "sage_contracts::obelysk::privacy_router::PrivateTransferWithAudit"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "receive_worker_payment",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "worker",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "sage_amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "claim_worker_payment",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "decryption_proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "rollup_balance",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_account",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::PrivateAccount"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_payment",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::PrivateWorkerPayment"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "receive_worker_payment_for_asset",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "worker",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "claim_worker_payment_for_asset",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "decryption_proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_payment_for_asset",
+        "inputs": [
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::PrivateWorkerPayment"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_worker_pending_count",
+        "inputs": [
+          {
+            "name": "worker",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_asset_token",
+        "inputs": [
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_asset_decimals",
+        "inputs": [
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u8"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_asset_supported",
+        "inputs": [
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_nullifier_used",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_current_epoch",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "batch_deposit",
+        "inputs": [
+          {
+            "name": "items",
+            "type": "core::array::Array::<sage_contracts::obelysk::privacy_router::BatchDepositItem>"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "deposit_asset",
+        "inputs": [
+          {
+            "name": "asset_id",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          },
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "ragequit",
+        "inputs": [
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::privacy_router::RagequitProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_ragequit_nullifier_used",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_ragequit_record",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::RagequitRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_auditor_key",
+        "inputs": [
+          {
+            "name": "auditor_key",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "set_payment_router",
+        "inputs": [
+          {
+            "name": "router",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "set_sage_token",
+        "inputs": [
+          {
+            "name": "sage",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "set_paused",
+        "inputs": [
+          {
+            "name": "paused",
+            "type": "core::bool"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "register_auditor",
+        "inputs": [
+          {
+            "name": "auditor",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "public_key",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "remove_auditor",
+        "inputs": [
+          {
+            "name": "auditor",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "update_audit_threshold",
+        "inputs": [
+          {
+            "name": "new_threshold",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "update_large_transfer_threshold",
+        "inputs": [
+          {
+            "name": "new_threshold",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_auditor",
+        "inputs": [
+          {
+            "name": "auditor",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::AuditorInfo"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_auditor_count",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_audit_threshold",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_large_transfer_threshold",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_auditor",
+        "inputs": [
+          {
+            "name": "address",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "approve_audit_request",
+        "inputs": [
+          {
+            "name": "request_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_audit_request",
+        "inputs": [
+          {
+            "name": "request_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::AuditRequest"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "has_approved",
+        "inputs": [
+          {
+            "name": "request_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "auditor",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "request_disclosure",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          },
+          {
+            "name": "reason",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_disclosed_ciphertext",
+        "inputs": [
+          {
+            "name": "request_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "(sage_contracts::obelysk::elgamal::ElGamalCiphertext, core::bool)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "submit_large_transfer",
+        "inputs": [
+          {
+            "name": "transfer",
+            "type": "sage_contracts::obelysk::privacy_router::PrivateTransferWithAudit"
+          },
+          {
+            "name": "threshold_proof",
+            "type": "sage_contracts::obelysk::privacy_router::ThresholdProof"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_approved_transfer",
+        "inputs": [
+          {
+            "name": "request_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_pending_request_count",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "verify_volume_proof",
+        "inputs": [
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::privacy_router::VolumeProof"
+          },
+          {
+            "name": "threshold",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "verify_non_transaction_proof",
+        "inputs": [
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::privacy_router::NonTransactionProof"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "verify_compliance_bundle",
+        "inputs": [
+          {
+            "name": "bundle",
+            "type": "sage_contracts::obelysk::privacy_router::ComplianceBundle"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_ex_post_proof",
+        "inputs": [
+          {
+            "name": "proof_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::ExPostProofRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_user_ex_post_proof_count",
+        "inputs": [
+          {
+            "name": "user",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_user_ex_post_proof",
+        "inputs": [
+          {
+            "name": "user",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "index",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::ExPostProofRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "update_balance_hints",
+        "inputs": [
+          {
+            "name": "balance_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          },
+          {
+            "name": "pending_in_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          },
+          {
+            "name": "pending_out_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_account_hints",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::AccountHints"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "deposit_with_hint",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          },
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::elgamal::EncryptionProof"
+          },
+          {
+            "name": "balance_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "private_transfer_with_hints",
+        "inputs": [
+          {
+            "name": "transfer",
+            "type": "sage_contracts::obelysk::privacy_router::PrivateTransfer"
+          },
+          {
+            "name": "sender_new_balance_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          },
+          {
+            "name": "receiver_pending_hint",
+            "type": "sage_contracts::obelysk::elgamal::AEHint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_hint_nonce",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "schedule_upgrade",
+        "inputs": [
+          {
+            "name": "new_class_hash",
+            "type": "core::starknet::class_hash::ClassHash"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "cancel_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_upgrade_info",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::starknet::class_hash::ClassHash, core::integer::u64, core::integer::u64, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_upgrade_delay",
+        "inputs": [
+          {
+            "name": "new_delay",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_steg_transaction",
+        "inputs": [
+          {
+            "name": "tx",
+            "type": "sage_contracts::obelysk::privacy_router::StegTransaction"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_steg_nullifier_used",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_steg_record",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::StegRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_total_steg_transactions",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "execute_mixing_transaction",
+        "inputs": [
+          {
+            "name": "inputs",
+            "type": "core::array::Array::<sage_contracts::obelysk::privacy_router::MixingInput>"
+          },
+          {
+            "name": "outputs",
+            "type": "core::array::Array::<sage_contracts::obelysk::privacy_router::MixingOutput>"
+          },
+          {
+            "name": "output_commitments",
+            "type": "core::array::Array::<sage_contracts::obelysk::pedersen_commitments::PedersenCommitment>"
+          },
+          {
+            "name": "output_range_proofs_data",
+            "type": "core::array::Span::<core::felt252>"
+          },
+          {
+            "name": "fee",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "balance_proof_hash",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "deposit_to_mixing_pool",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "recipient_pubkey",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          },
+          {
+            "name": "encrypted_amount",
+            "type": "sage_contracts::obelysk::elgamal::ElGamalCiphertext"
+          },
+          {
+            "name": "amount_commitment",
+            "type": "sage_contracts::obelysk::pedersen_commitments::PedersenCommitment"
+          },
+          {
+            "name": "range_proof_data",
+            "type": "core::array::Span::<core::felt252>"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "withdraw_from_mixing_pool",
+        "inputs": [
+          {
+            "name": "input",
+            "type": "sage_contracts::obelysk::privacy_router::MixingInput"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "withdrawal_proof_hash",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_key_image_used",
+        "inputs": [
+          {
+            "name": "key_image",
+            "type": "sage_contracts::obelysk::privacy_router::KeyImage"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_mixing_output",
+        "inputs": [
+          {
+            "name": "output_index",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::MixingPoolOutput"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_mixing_pool_size",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_mixing_tx_record",
+        "inputs": [
+          {
+            "name": "tx_hash",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::MixingTxRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_total_mixing_transactions",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_outputs_in_block_range",
+        "inputs": [
+          {
+            "name": "start_block",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "end_block",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "max_results",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::array::Array::<core::integer::u64>"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "execute_batch_transfer",
+        "inputs": [
+          {
+            "name": "transfers",
+            "type": "core::array::Array::<sage_contracts::obelysk::privacy_router::BatchTransferItem>"
+          },
+          {
+            "name": "range_proofs_data",
+            "type": "core::array::Span::<core::felt252>"
+          },
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::privacy_router::BatchTransferProof"
+          },
+          {
+            "name": "batch_id",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_batch_nullifier_used",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_batch_record",
+        "inputs": [
+          {
+            "name": "batch_id",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::BatchTransferRecord"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_total_batch_transfers",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "register_view_key",
+        "inputs": [
+          {
+            "name": "view_pubkey",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          },
+          {
+            "name": "derivation_proof",
+            "type": "sage_contracts::obelysk::privacy_router::ViewKeyDerivationProof"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "revoke_view_key",
+        "inputs": [
+          {
+            "name": "view_pubkey",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "grant_view_access",
+        "inputs": [
+          {
+            "name": "grantee_id",
+            "type": "core::felt252"
+          },
+          {
+            "name": "view_pubkey",
+            "type": "sage_contracts::obelysk::elgamal::ECPoint"
+          },
+          {
+            "name": "expires_at",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "revoke_view_grant",
+        "inputs": [
+          {
+            "name": "grantee_id",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "verify_threshold_disclosure",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "disclosure",
+            "type": "sage_contracts::obelysk::privacy_router::ThresholdDisclosure"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_view_key",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::ViewKeyRegistration"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_view_grant",
+        "inputs": [
+          {
+            "name": "grantee_id",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::ViewKeyGrant"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "has_view_key",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "has_valid_view_access",
+        "inputs": [
+          {
+            "name": "grantee_id",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_nullifier_tree_root",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::felt252"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_nullifier_tree_state",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::privacy_router::NullifierTreeState"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_nullifier_in_tree",
+        "inputs": [
+          {
+            "name": "nullifier",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "verify_nullifier_proof",
+        "inputs": [
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::privacy_router::NullifierMerkleProof"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_nullifier_count",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_known_nullifier_root",
+        "inputs": [
+          {
+            "name": "root",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "init_lean_imt",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "batch_insert_nullifiers",
+        "inputs": [
+          {
+            "name": "nullifiers",
+            "type": "core::array::Span::<core::felt252>"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::lean_imt::LeanIMTBatchResult"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_lean_imt_state",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::lean_imt::LeanIMTState"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "verify_lean_imt_membership",
+        "inputs": [
+          {
+            "name": "proof",
+            "type": "sage_contracts::obelysk::lean_imt::LeanIMTProof"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_lean_imt_active",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "sage_token",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "payment_router",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AccountRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "public_key_x",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "public_key_y",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateDeposit",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "public_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::BatchDepositCompleted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "items_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "total_normalized_value",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateWithdraw",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "public_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateTransferExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::WorkerPaymentReceived",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::WorkerPaymentClaimed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "job_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "worker",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::EpochAdvanced",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "new_epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::RagequitExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeScheduled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "data"
+      },
+      {
+        "name": "scheduled_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "scheduler",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "data"
+      },
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "data"
+      },
+      {
+        "name": "executor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeCancelled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "cancelled_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "data"
+      },
+      {
+        "name": "canceller",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::StegTransactionExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "commitment",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingTransactionExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "tx_hash",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "input_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "output_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "fee",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingPoolDeposit",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "depositor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "output_index",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "public_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingPoolWithdraw",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "recipient",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "asset_id",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "key_image_x",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "key_image_y",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "public_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingOutputCreated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "output_index",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "pubkey_x",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "pubkey_y",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "block_height",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "creating_tx",
+        "type": "core::felt252",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::BatchTransferExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "batch_id",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "transfer_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewKeyRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "view_pubkey_x",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "view_pubkey_y",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewKeyRevoked",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewAccessGranted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "grantor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "grantee_id",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "expires_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewGrantRevoked",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "grantor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "grantee_id",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::NullifierTreeInserted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "index",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "new_root",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTInitialized",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTInserted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "index",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "new_root",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "depth",
+        "type": "core::integer::u8",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTBatchInserted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "start_index",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_root",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "new_depth",
+        "type": "core::integer::u8",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditorRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "auditor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "public_key_x",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "public_key_y",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "registered_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditorRemoved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "auditor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "removed_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditThresholdUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_threshold",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_threshold",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "updated_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LargeTransferThresholdUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_threshold",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_threshold",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "updated_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestCreated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "request_type",
+        "type": "sage_contracts::obelysk::privacy_router::AuditRequestType",
+        "kind": "data"
+      },
+      {
+        "name": "requester",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "target_nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "required_approvals",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "expires_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestApproved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "auditor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "approval_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "required_approvals",
+        "type": "core::integer::u32",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "executor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureRequested",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "requester",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "reason",
+        "type": "core::felt252",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureApproved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "auditor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "approval_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "required_approvals",
+        "type": "core::integer::u32",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "request_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "nullifier",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "executor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::VolumeProofVerified",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proof_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "prover",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "threshold",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "nullifier_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "epoch_start",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "epoch_end",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::NonTransactionProofVerified",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proof_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "prover",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "excluded_address",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "nullifier_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "epoch_start",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "epoch_end",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ComplianceBundleVerified",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proof_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "prover",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "transaction_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "total_volume",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "period_start",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "period_end",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::privacy_router::PrivacyRouter::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "AccountRegistered",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AccountRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "PrivateDeposit",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateDeposit",
+        "kind": "nested"
+      },
+      {
+        "name": "BatchDepositCompleted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::BatchDepositCompleted",
+        "kind": "nested"
+      },
+      {
+        "name": "PrivateWithdraw",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateWithdraw",
+        "kind": "nested"
+      },
+      {
+        "name": "PrivateTransferExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::PrivateTransferExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "WorkerPaymentReceived",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::WorkerPaymentReceived",
+        "kind": "nested"
+      },
+      {
+        "name": "WorkerPaymentClaimed",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::WorkerPaymentClaimed",
+        "kind": "nested"
+      },
+      {
+        "name": "EpochAdvanced",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::EpochAdvanced",
+        "kind": "nested"
+      },
+      {
+        "name": "RagequitExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::RagequitExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeScheduled",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeScheduled",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeCancelled",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::UpgradeCancelled",
+        "kind": "nested"
+      },
+      {
+        "name": "StegTransactionExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::StegTransactionExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "MixingTransactionExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingTransactionExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "MixingPoolDeposit",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingPoolDeposit",
+        "kind": "nested"
+      },
+      {
+        "name": "MixingPoolWithdraw",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingPoolWithdraw",
+        "kind": "nested"
+      },
+      {
+        "name": "MixingOutputCreated",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::MixingOutputCreated",
+        "kind": "nested"
+      },
+      {
+        "name": "BatchTransferExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::BatchTransferExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "ViewKeyRegistered",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewKeyRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "ViewKeyRevoked",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewKeyRevoked",
+        "kind": "nested"
+      },
+      {
+        "name": "ViewAccessGranted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewAccessGranted",
+        "kind": "nested"
+      },
+      {
+        "name": "ViewGrantRevoked",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ViewGrantRevoked",
+        "kind": "nested"
+      },
+      {
+        "name": "NullifierTreeInserted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::NullifierTreeInserted",
+        "kind": "nested"
+      },
+      {
+        "name": "LeanIMTInitialized",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTInitialized",
+        "kind": "nested"
+      },
+      {
+        "name": "LeanIMTInserted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTInserted",
+        "kind": "nested"
+      },
+      {
+        "name": "LeanIMTBatchInserted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LeanIMTBatchInserted",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditorRegistered",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditorRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditorRemoved",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditorRemoved",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditThresholdUpdated",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditThresholdUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "LargeTransferThresholdUpdated",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::LargeTransferThresholdUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditRequestCreated",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestCreated",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditRequestApproved",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestApproved",
+        "kind": "nested"
+      },
+      {
+        "name": "AuditRequestExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::AuditRequestExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "DisclosureRequested",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureRequested",
+        "kind": "nested"
+      },
+      {
+        "name": "DisclosureApproved",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureApproved",
+        "kind": "nested"
+      },
+      {
+        "name": "DisclosureExecuted",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::DisclosureExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "VolumeProofVerified",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::VolumeProofVerified",
+        "kind": "nested"
+      },
+      {
+        "name": "NonTransactionProofVerified",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::NonTransactionProofVerified",
+        "kind": "nested"
+      },
+      {
+        "name": "ComplianceBundleVerified",
+        "type": "sage_contracts::obelysk::privacy_router::PrivacyRouter::ComplianceBundleVerified",
+        "kind": "nested"
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+# Starknet Foundry configuration for BitSage contracts
+
+[sncast.devnet]
+url = "http://localhost:5050"
+account = "devnet_account"
+accounts-file = "accounts.json"
+
+[sncast.sepolia]
+url = "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_10/GUBwFqKhSgn4mwVbN6Sbn"
+account = "bitsage"
+accounts-file = "accounts.json"
+
+[sncast.mainnet]
+url = "https://starknet-mainnet.public.blastapi.io/rpc/v0_7"

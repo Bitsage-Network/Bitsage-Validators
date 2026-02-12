@@ -1,0 +1,100 @@
+# BitSage Cairo VM Workload
+# Cairo smart contract development and execution
+#
+# Build: docker build -f Dockerfile.cairo-vm -t bitsage/cairo-vm:latest .
+# Run: docker run -p 8080:8080 bitsage/cairo-vm:latest
+
+FROM ubuntu:22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Cairo VM development environment"
+LABEL bitsage.workload_id="cairo-vm"
+LABEL bitsage.min_vram_gb="0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    python3.11 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install Scarb (Cairo package manager)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Install Starkli (CLI tool)
+RUN curl https://get.starkli.sh | sh && \
+    /root/.starkli/bin/starkliup
+ENV PATH="/root/.starkli/bin:${PATH}"
+
+# Install snforge (testing framework)
+RUN curl -L https://raw.githubusercontent.com/foundry-rs/starknet-foundry/master/scripts/install.sh | sh && \
+    /root/.starknet-foundry/bin/snfoundryup
+ENV PATH="/root/.starknet-foundry/bin:${PATH}"
+
+WORKDIR /workspace
+
+# Create sample project structure
+RUN mkdir -p /workspace/contracts
+
+# Create a simple API for Cairo operations
+RUN echo '#!/bin/bash\n\
+\n\
+echo "Cairo VM Development Environment"\n\
+echo "================================"\n\
+echo "Available tools:"\n\
+echo "  - scarb: $(scarb --version)"\n\
+echo "  - starkli: $(starkli --version)"\n\
+echo "  - snforge: $(snforge --version 2>/dev/null || echo "installed")"\n\
+echo ""\n\
+echo "Starting development server..."\n\
+\n\
+# Simple HTTP server for health checks\n\
+python3 -c "\n\
+from http.server import HTTPServer, BaseHTTPRequestHandler\n\
+import json\n\
+import subprocess\n\
+\n\
+class Handler(BaseHTTPRequestHandler):\n\
+    def do_GET(self):\n\
+        if self.path == \"/health\":\n\
+            self.send_response(200)\n\
+            self.send_header(\"Content-type\", \"application/json\")\n\
+            self.end_headers()\n\
+            self.wfile.write(json.dumps({\"status\": \"ready\"}).encode())\n\
+        elif self.path == \"/info\":\n\
+            info = {\n\
+                \"scarb\": subprocess.getoutput(\"scarb --version\"),\n\
+                \"starkli\": subprocess.getoutput(\"starkli --version\"),\n\
+                \"workspace\": \"/workspace\"\n\
+            }\n\
+            self.send_response(200)\n\
+            self.send_header(\"Content-type\", \"application/json\")\n\
+            self.end_headers()\n\
+            self.wfile.write(json.dumps(info).encode())\n\
+        else:\n\
+            self.send_response(404)\n\
+            self.end_headers()\n\
+\n\
+print(\"Cairo VM API listening on port 8080\")\n\
+HTTPServer((\"0.0.0.0\", 8080), Handler).serve_forever()\n\
+"\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["/workspace/start.sh"]

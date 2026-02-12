@@ -1,0 +1,119 @@
+# BitSage SDXL Workload
+# Stable Diffusion XL image generation API
+#
+# Build: docker build -f Dockerfile.sdxl -t bitsage/sdxl:latest .
+# Run: docker run --gpus all -p 8080:8080 bitsage/sdxl:latest
+
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="SDXL image generation API"
+LABEL bitsage.workload_id="sdxl-gen"
+LABEL bitsage.min_vram_gb="12"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/models
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    git \
+    curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+RUN python -m pip install --upgrade pip
+
+# Install dependencies
+RUN pip install \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip install \
+    diffusers \
+    transformers \
+    accelerate \
+    safetensors \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    Pillow
+
+RUN mkdir -p /models /workspace
+WORKDIR /workspace
+
+# Create API server
+RUN echo 'import os\n\
+import io\n\
+import base64\n\
+from fastapi import FastAPI, HTTPException\n\
+from fastapi.responses import JSONResponse\n\
+from pydantic import BaseModel\n\
+import torch\n\
+from diffusers import StableDiffusionXLPipeline\n\
+from PIL import Image\n\
+\n\
+app = FastAPI(title="BitSage SDXL API")\n\
+pipe = None\n\
+\n\
+class GenerateRequest(BaseModel):\n\
+    prompt: str\n\
+    negative_prompt: str = ""\n\
+    width: int = 1024\n\
+    height: int = 1024\n\
+    steps: int = 30\n\
+    guidance_scale: float = 7.5\n\
+\n\
+@app.on_event("startup")\n\
+async def load_model():\n\
+    global pipe\n\
+    model_id = os.getenv("MODEL_ID", "stabilityai/stable-diffusion-xl-base-1.0")\n\
+    print(f"Loading SDXL model: {model_id}")\n\
+    pipe = StableDiffusionXLPipeline.from_pretrained(\n\
+        model_id,\n\
+        torch_dtype=torch.float16,\n\
+        use_safetensors=True,\n\
+        variant="fp16"\n\
+    )\n\
+    pipe.to("cuda")\n\
+    print("Model loaded successfully")\n\
+\n\
+@app.get("/health")\n\
+async def health():\n\
+    return {"status": "ready" if pipe else "loading"}\n\
+\n\
+@app.post("/generate")\n\
+async def generate(req: GenerateRequest):\n\
+    if not pipe:\n\
+        raise HTTPException(503, "Model not loaded")\n\
+    \n\
+    image = pipe(\n\
+        prompt=req.prompt,\n\
+        negative_prompt=req.negative_prompt,\n\
+        width=req.width,\n\
+        height=req.height,\n\
+        num_inference_steps=req.steps,\n\
+        guidance_scale=req.guidance_scale\n\
+    ).images[0]\n\
+    \n\
+    buffer = io.BytesIO()\n\
+    image.save(buffer, format="PNG")\n\
+    img_str = base64.b64encode(buffer.getvalue()).decode()\n\
+    \n\
+    return {"image": img_str}\n\
+\n\
+if __name__ == "__main__":\n\
+    import uvicorn\n\
+    uvicorn.run(app, host="0.0.0.0", port=8080)\n\
+' > /workspace/server.py
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["python", "/workspace/server.py"]

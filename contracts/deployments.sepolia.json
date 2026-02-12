@@ -1,0 +1,32 @@
+{
+  "network": "sepolia",
+  "timestamp": "2026-01-02T05:30:00Z",
+  "deployer": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344",
+  "contracts": {
+    "RentalEscrow": {
+      "class_hash": "0x68d869ce38fd43971ebc0097defd8116c60939926eed3673c0a6f1f72852a3e",
+      "address": "0x02f667f323624695626dcffef7115abfc87f468d10166d6a8d1c5c7a9c7e9d63",
+      "declare_tx": "0x6d956a5af0ac6151ea9d411c2887a3ef20e666a7a16ba213ee84e7442c1ae75",
+      "deploy_tx": "0x049594776073c0a192d80b409e1a70c5421b75699dbd474b2c2e1d2754c8a962",
+      "constructor_args": {
+        "admin": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344",
+        "sage_token": "0x04321b7282ae6aa354988eed57f2ff851314af8524de8b1f681a128003cc4ea5",
+        "coordinator": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344"
+      },
+      "config_update_tx": "0x042886ddcc1d466c7048d7d230d49cdddb3872ec2999f0035af68f54fbeb7f26"
+    }
+  },
+  "external_contracts": {
+    "SAGEToken": {
+      "address": "0x04321b7282ae6aa354988eed57f2ff851314af8524de8b1f681a128003cc4ea5",
+      "class_hash": "0x0207f82c16228cb368dac6e9f7c5b934e2fcb442f59dd845437fc9c22f27b0c1",
+      "source": "BitSage-Cairo-Smart-Contracts"
+    },
+    "Escrow": {
+      "address": "0x045aa77cfaf3a902d879f3a26165922a423f5902c9d1647dbfe0274328930d4f",
+      "class_hash": "0x0404eae057aaf156d46f5ddf3954b9857f9d4e6586afe1eee6aa02cb731eb44e",
+      "source": "BitSage-Cairo-Smart-Contracts",
+      "note": "General escrow contract - different from RentalEscrow"
+    }
+  }
+}

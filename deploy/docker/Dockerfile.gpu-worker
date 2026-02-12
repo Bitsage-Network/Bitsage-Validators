@@ -1,0 +1,93 @@
+# BitSage GPU Worker
+# CUDA-accelerated STWO prover for proof generation
+#
+# Features:
+# - Full STWO prover with NTT, FRI, Merkle tree acceleration
+# - CUDA 12.3 for NVIDIA GPUs (RTX 3090, RTX 4090, A100, H100)
+# - Automatic registration with coordinator
+# - WebSocket job streaming
+# - Real-time GPU metrics
+
+# Build stage
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04 AS builder
+
+WORKDIR /build
+
+# Install Rust and build dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy crates
+COPY crates/stwo-gpu ./crates/stwo-gpu
+
+# Build GPU worker with CUDA feature
+WORKDIR /build/crates/stwo-gpu
+RUN cargo build --release --features cuda --bin stwo-gpu-worker
+
+# Runtime stage
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy worker binary
+COPY --from=builder /build/crates/stwo-gpu/target/release/stwo-gpu-worker /app/
+
+# Create data directories
+RUN mkdir -p /data/proofs /data/circuits /data/logs
+
+# Environment configuration
+ENV RUST_LOG=stwo_gpu=info,stwo_gpu_worker=info
+
+# Coordinator connection
+ENV COORDINATOR_URL=http://coordinator:3030
+ENV WS_URL=ws://coordinator:3030
+
+# Worker configuration
+ENV WORKER_ID=
+ENV MAX_CONCURRENT_JOBS=4
+ENV HEARTBEAT_INTERVAL=30
+
+# GPU configuration
+ENV GPU_BACKEND=cuda
+ENV CUDA_VISIBLE_DEVICES=all
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# GPU memory settings
+ENV GPU_MEMORY_FRACTION=0.9
+ENV MAX_BATCH_SIZE=1024
+
+# Data directory
+ENV DATA_DIR=/data
+
+# Health check - verify GPU and service
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD nvidia-smi && curl -sf http://localhost:3040/health || exit 1
+
+# Expose metrics port
+EXPOSE 3040
+
+# Labels
+LABEL org.opencontainers.image.title="BitSage GPU Worker"
+LABEL org.opencontainers.image.description="CUDA-accelerated STWO prover for BitSage Network"
+LABEL org.opencontainers.image.vendor="BitSage Network"
+
+# Run worker
+ENTRYPOINT ["/app/stwo-gpu-worker"]

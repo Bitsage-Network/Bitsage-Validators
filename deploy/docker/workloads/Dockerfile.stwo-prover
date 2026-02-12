@@ -1,0 +1,53 @@
+# BitSage STWO Prover Workload
+# GPU-accelerated ZK proof generation
+#
+# Build: docker build -f Dockerfile.stwo-prover -t bitsage/stwo-prover:latest .
+# Run: docker run --gpus all -p 8080:8080 bitsage/stwo-prover:latest
+
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="STWO ZK Prover with GPU acceleration"
+LABEL bitsage.workload_id="stwo-prover"
+LABEL bitsage.min_vram_gb="8"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install Rust and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    clang \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /workspace
+
+# Clone and build STWO (adjust repo as needed)
+# For now, we'll create a simple API wrapper
+RUN echo '#!/bin/bash\n\
+echo "STWO Prover ready"\n\
+echo "API listening on port 8080"\n\
+\n\
+# Simple HTTP server for health checks\n\
+while true; do\n\
+    echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ready\",\"prover\":\"stwo\"}" | nc -l -p 8080 -q 1\n\
+done\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+RUN apt-get update && apt-get install -y netcat && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/ || exit 1
+
+CMD ["/workspace/start.sh"]

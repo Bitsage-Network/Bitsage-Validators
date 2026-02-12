@@ -1,0 +1,2932 @@
+[
+  {
+    "type": "impl",
+    "name": "SAGETokenImpl",
+    "interface_name": "sage_contracts::interfaces::sage_token::ISAGEToken"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::SecurityBudget",
+    "members": [
+      {
+        "name": "annual_budget_usd",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "current_reserves",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "last_replenishment",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "guard_band_active",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::interfaces::sage_token::ProposalStatus",
+    "variants": [
+      {
+        "name": "Draft",
+        "type": "()"
+      },
+      {
+        "name": "Active",
+        "type": "()"
+      },
+      {
+        "name": "Succeeded",
+        "type": "()"
+      },
+      {
+        "name": "Executed",
+        "type": "()"
+      },
+      {
+        "name": "Defeated",
+        "type": "()"
+      },
+      {
+        "name": "Cancelled",
+        "type": "()"
+      },
+      {
+        "name": "Expired",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::GovernanceProposal",
+    "members": [
+      {
+        "name": "id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "proposer",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "title",
+        "type": "core::felt252"
+      },
+      {
+        "name": "description",
+        "type": "core::felt252"
+      },
+      {
+        "name": "proposal_type",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "inflation_change",
+        "type": "core::integer::i32"
+      },
+      {
+        "name": "burn_rate_change",
+        "type": "core::integer::i32"
+      },
+      {
+        "name": "voting_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "voting_end",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "voting_starts",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "voting_ends",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "execution_delay",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "votes_for",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "votes_against",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "for_votes",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "against_votes",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "total_voting_power",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "quorum_threshold",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "execution_deadline",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "status",
+        "type": "sage_contracts::interfaces::sage_token::ProposalStatus"
+      },
+      {
+        "name": "created_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "executed_at",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::GovernanceRights",
+    "members": [
+      {
+        "name": "voting_power",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "proposal_threshold",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "can_create_proposals",
+        "type": "core::bool"
+      },
+      {
+        "name": "governance_tier",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::GovernanceStats",
+    "members": [
+      {
+        "name": "total_proposals",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "active_proposals",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "executed_proposals",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "total_voters",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "average_participation",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "total_voting_power",
+        "type": "core::integer::u256"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::BurnEvent",
+    "members": [
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "reason",
+        "type": "core::felt252"
+      },
+      {
+        "name": "network_phase",
+        "type": "core::felt252"
+      },
+      {
+        "name": "total_supply_after",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "burn_rate",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::PendingTransfer",
+    "members": [
+      {
+        "name": "id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "transfer_id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "from",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "initiated_at",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "execution_time",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "approved_by_council",
+        "type": "core::bool"
+      },
+      {
+        "name": "is_executed",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::RateLimitInfo",
+    "members": [
+      {
+        "name": "current_limit",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "current_usage",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "window_start",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "window_duration",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "next_reset",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::interfaces::sage_token::EmergencyOperation",
+    "members": [
+      {
+        "name": "operation_id",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "operation_type",
+        "type": "core::felt252"
+      },
+      {
+        "name": "authorized_by",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "justification",
+        "type": "core::felt252"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "amount_affected",
+        "type": "core::integer::u256"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::interfaces::sage_token::ISAGEToken",
+    "items": [
+      {
+        "type": "function",
+        "name": "name",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::felt252"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "symbol",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::felt252"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "decimals",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u8"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "total_supply",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "balance_of",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "allowance",
+        "inputs": [
+          {
+            "name": "owner",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "spender",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "transfer",
+        "inputs": [
+          {
+            "name": "recipient",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "transfer_from",
+        "inputs": [
+          {
+            "name": "sender",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "recipient",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "approve",
+        "inputs": [
+          {
+            "name": "spender",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "increase_allowance",
+        "inputs": [
+          {
+            "name": "spender",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "added_value",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "decrease_allowance",
+        "inputs": [
+          {
+            "name": "spender",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "subtracted_value",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "mint",
+        "inputs": [
+          {
+            "name": "to",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "reason",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "burn_from_revenue",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "revenue_source",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "execution_price",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_inflation_rate",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_burn_rate",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_total_burned",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_security_budget",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::SecurityBudget"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "create_typed_proposal",
+        "inputs": [
+          {
+            "name": "description",
+            "type": "core::felt252"
+          },
+          {
+            "name": "proposal_type",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "inflation_change",
+            "type": "core::integer::i32"
+          },
+          {
+            "name": "burn_rate_change",
+            "type": "core::integer::i32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "create_proposal",
+        "inputs": [
+          {
+            "name": "description",
+            "type": "core::felt252"
+          },
+          {
+            "name": "inflation_change",
+            "type": "core::integer::i32"
+          },
+          {
+            "name": "burn_rate_change",
+            "type": "core::integer::i32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "vote_on_proposal",
+        "inputs": [
+          {
+            "name": "proposal_id",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "vote_for",
+            "type": "core::bool"
+          },
+          {
+            "name": "voting_power",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_proposal",
+        "inputs": [
+          {
+            "name": "proposal_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_proposal",
+        "inputs": [
+          {
+            "name": "proposal_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::GovernanceProposal"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_voting_power",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_governance_rights",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::GovernanceRights"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_governance_stats",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::GovernanceStats"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "can_create_proposal_type",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "proposal_type",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "emergency_governance_pause",
+        "inputs": [
+          {
+            "name": "duration",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "resume_governance",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "collect_job_fee",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "job_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "distribute_pool_rewards",
+        "inputs": [
+          {
+            "name": "pool_address",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "pay_gas_fee",
+        "inputs": [
+          {
+            "name": "user",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "gas_cost",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "replenish_security_budget",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "pause",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "unpause",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "is_paused",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "emergency_mint",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "justification",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_burn_history",
+        "inputs": [
+          {
+            "name": "offset",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "limit",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::array::Array::<sage_contracts::interfaces::sage_token::BurnEvent>"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_network_phase",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::felt252"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_revenue_stats",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u256, core::integer::u32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "check_inflation_adjustment_rate_limit",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::bool, core::integer::u64, core::integer::u32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "submit_security_audit",
+        "inputs": [
+          {
+            "name": "findings_count",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "security_score",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "critical_issues",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "recommendations",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_security_audit_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u64, core::integer::u32, core::integer::u32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "initiate_large_transfer",
+        "inputs": [
+          {
+            "name": "to",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_large_transfer",
+        "inputs": [
+          {
+            "name": "transfer_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_pending_transfer",
+        "inputs": [
+          {
+            "name": "transfer_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::PendingTransfer"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "check_transfer_rate_limit",
+        "inputs": [
+          {
+            "name": "user",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "(core::bool, sage_contracts::interfaces::sage_token::RateLimitInfo)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_gas_optimization",
+        "inputs": [
+          {
+            "name": "enabled",
+            "type": "core::bool"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_contract_info",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::felt252, core::bool, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "log_emergency_operation",
+        "inputs": [
+          {
+            "name": "operation_type",
+            "type": "core::felt252"
+          },
+          {
+            "name": "details",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_emergency_operation",
+        "inputs": [
+          {
+            "name": "operation_id",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::interfaces::sage_token::EmergencyOperation"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "batch_transfer",
+        "inputs": [
+          {
+            "name": "recipients",
+            "type": "core::array::Array::<core::starknet::contract_address::ContractAddress>"
+          },
+          {
+            "name": "amounts",
+            "type": "core::array::Array::<core::integer::u256>"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "report_suspicious_activity",
+        "inputs": [
+          {
+            "name": "activity_type",
+            "type": "core::felt252"
+          },
+          {
+            "name": "severity",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_security_monitoring_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u32, core::integer::u32, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "emergency_withdraw",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "justification",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "authorize_upgrade",
+        "inputs": [
+          {
+            "name": "new_implementation",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "timelock_duration",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "set_revenue_burn_config",
+        "inputs": [
+          {
+            "name": "target_monthly_revenue",
+            "type": "core::integer::u256"
+          },
+          {
+            "name": "modifier_max",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "enabled",
+            "type": "core::bool"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_revenue_burn_config",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u32, core::bool, core::integer::i32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_effective_burn_rate",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u32, core::integer::u32, core::integer::i32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_max_supply",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_remaining_mintable",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_supply_utilization",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "take_token_flow_snapshot",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_token_flow_summary",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u256, core::integer::u256, core::bool)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_milestone_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::bool, core::bool, core::bool, core::bool, core::bool)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "schedule_upgrade",
+        "inputs": [
+          {
+            "name": "new_class_hash",
+            "type": "core::starknet::class_hash::ClassHash"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "cancel_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_upgrade_info",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::starknet::class_hash::ClassHash, core::integer::u64, core::integer::u64, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_upgrade_delay",
+        "inputs": [
+          {
+            "name": "new_delay",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "emit_ecosystem_rewards",
+        "inputs": [
+          {
+            "name": "recipient",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_ecosystem_emission_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u256, core::integer::u32, core::integer::u64, core::integer::u32)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_pool_balances",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "release_treasury_vesting",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "release_team_vesting",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "release_public_sale_vesting",
+        "inputs": [
+          {
+            "name": "beneficiary",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_vesting_status",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::integer::u32, core::integer::u32, core::bool, core::integer::u32)"
+          }
+        ],
+        "state_mutability": "view"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "job_manager",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "cdc_pool",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "paymaster",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "treasury_beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "team_beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "liquidity_beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::Transfer",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "from",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "value",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::Approval",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "spender",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "value",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::Mint",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "reason",
+        "type": "core::felt252",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::Burn",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "revenue_source",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "execution_price",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "burn_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::InflationRateChanged",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::BurnRateChanged",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::SecurityBudgetReplenished",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_total",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::EmergencyMint",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "justification",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ContractPaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ContractUnpaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::RevenueCollected",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "source",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::PhaseTransition",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_phase",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "new_phase",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ProposalCreated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proposal_id",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "proposer",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "proposal_type",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "description",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "voting_ends_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "quorum_required",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "supermajority_required",
+        "type": "core::bool",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ProposalVoted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proposal_id",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "voter",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "vote_for",
+        "type": "core::bool",
+        "kind": "data"
+      },
+      {
+        "name": "voting_power",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_votes_for",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_votes_against",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ProposalExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proposal_id",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "result",
+        "type": "core::bool",
+        "kind": "data"
+      },
+      {
+        "name": "votes_for",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "votes_against",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "execution_timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::ProposalQuorumAchieved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "proposal_id",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_votes",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "quorum_requirement",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::GovernanceRightsUpgraded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "old_tier",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_tier",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_voting_power",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::GovernancePaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "duration",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "reason",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::GovernanceResumed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "pause_duration",
+        "type": "core::integer::u64",
+        "kind": "key"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::VotingPowerUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "old_power",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_power",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "multiplier_applied",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::SecurityAuditSubmitted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "audit_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "auditor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "findings_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "security_score",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "critical_issues",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::RateLimitExceeded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "user",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "operation_type",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "attempted_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "current_limit",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "window_reset_time",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::LargeTransferInitiated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "transfer_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "from",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::LargeTransferExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "transfer_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "from",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "to",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "execution_time",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::EmergencyOperationLogged",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "operation_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "executor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "operation_type",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "details",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::SuspiciousActivityReported",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "reporter",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "activity_type",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "severity",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::GasOptimizationToggled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "enabled",
+        "type": "core::bool",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::BatchTransferCompleted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "transfer_count",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "total_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "gas_saved",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::UpgradeAuthorized",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_implementation",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "authorized_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "timelock_duration",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::EmergencyWithdrawal",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "executor",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "justification",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::SecurityThresholdChanged",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_threshold",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "new_threshold",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "changed_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::RevenueBurnRateAdjusted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "base_rate",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "revenue_modifier",
+        "type": "core::integer::i32",
+        "kind": "data"
+      },
+      {
+        "name": "effective_rate",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "monthly_revenue",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "target_revenue",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::RevenueBurnConfigUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "updated_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "target_monthly_revenue",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "modifier_max",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "enabled",
+        "type": "core::bool",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::MaxSupplyWarning",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "current_supply",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "max_supply",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "percentage_used",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::TokenFlowSnapshot",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "snapshot_id",
+        "type": "core::integer::u256",
+        "kind": "key"
+      },
+      {
+        "name": "total_supply",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_burned",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_minted",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_revenue",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "monthly_revenue",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "burn_rate_bps",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "inflation_rate_bps",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "supply_utilization_bps",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::MilestoneReached",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "milestone_type",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "value",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::EcosystemEmission",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "month",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "remaining_pool",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "emission_rate_bps",
+        "type": "core::integer::u32",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::VestingReleased",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "pool_name",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "beneficiary",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_released",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "remaining",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::TGECompleted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "market_liquidity",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "public_sale_tge",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "total_circulating",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::UpgradeScheduled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "scheduled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::UpgradeExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "executed_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::UpgradeCancelled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "cancelled_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "cancelled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "timestamp",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "openzeppelin_security::pausable::PausableComponent::Paused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "openzeppelin_security::pausable::PausableComponent::Unpaused",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "account",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "openzeppelin_security::pausable::PausableComponent::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "Paused",
+        "type": "openzeppelin_security::pausable::PausableComponent::Paused",
+        "kind": "nested"
+      },
+      {
+        "name": "Unpaused",
+        "type": "openzeppelin_security::pausable::PausableComponent::Unpaused",
+        "kind": "nested"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Upgraded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "Upgraded",
+        "type": "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Upgraded",
+        "kind": "nested"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::sage_token::SAGEToken::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "Transfer",
+        "type": "sage_contracts::sage_token::SAGEToken::Transfer",
+        "kind": "nested"
+      },
+      {
+        "name": "Approval",
+        "type": "sage_contracts::sage_token::SAGEToken::Approval",
+        "kind": "nested"
+      },
+      {
+        "name": "Mint",
+        "type": "sage_contracts::sage_token::SAGEToken::Mint",
+        "kind": "nested"
+      },
+      {
+        "name": "Burn",
+        "type": "sage_contracts::sage_token::SAGEToken::Burn",
+        "kind": "nested"
+      },
+      {
+        "name": "InflationRateChanged",
+        "type": "sage_contracts::sage_token::SAGEToken::InflationRateChanged",
+        "kind": "nested"
+      },
+      {
+        "name": "BurnRateChanged",
+        "type": "sage_contracts::sage_token::SAGEToken::BurnRateChanged",
+        "kind": "nested"
+      },
+      {
+        "name": "SecurityBudgetReplenished",
+        "type": "sage_contracts::sage_token::SAGEToken::SecurityBudgetReplenished",
+        "kind": "nested"
+      },
+      {
+        "name": "EmergencyMint",
+        "type": "sage_contracts::sage_token::SAGEToken::EmergencyMint",
+        "kind": "nested"
+      },
+      {
+        "name": "ContractPaused",
+        "type": "sage_contracts::sage_token::SAGEToken::ContractPaused",
+        "kind": "nested"
+      },
+      {
+        "name": "ContractUnpaused",
+        "type": "sage_contracts::sage_token::SAGEToken::ContractUnpaused",
+        "kind": "nested"
+      },
+      {
+        "name": "RevenueCollected",
+        "type": "sage_contracts::sage_token::SAGEToken::RevenueCollected",
+        "kind": "nested"
+      },
+      {
+        "name": "PhaseTransition",
+        "type": "sage_contracts::sage_token::SAGEToken::PhaseTransition",
+        "kind": "nested"
+      },
+      {
+        "name": "ProposalCreated",
+        "type": "sage_contracts::sage_token::SAGEToken::ProposalCreated",
+        "kind": "nested"
+      },
+      {
+        "name": "ProposalVoted",
+        "type": "sage_contracts::sage_token::SAGEToken::ProposalVoted",
+        "kind": "nested"
+      },
+      {
+        "name": "ProposalExecuted",
+        "type": "sage_contracts::sage_token::SAGEToken::ProposalExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "ProposalQuorumAchieved",
+        "type": "sage_contracts::sage_token::SAGEToken::ProposalQuorumAchieved",
+        "kind": "nested"
+      },
+      {
+        "name": "GovernanceRightsUpgraded",
+        "type": "sage_contracts::sage_token::SAGEToken::GovernanceRightsUpgraded",
+        "kind": "nested"
+      },
+      {
+        "name": "GovernancePaused",
+        "type": "sage_contracts::sage_token::SAGEToken::GovernancePaused",
+        "kind": "nested"
+      },
+      {
+        "name": "GovernanceResumed",
+        "type": "sage_contracts::sage_token::SAGEToken::GovernanceResumed",
+        "kind": "nested"
+      },
+      {
+        "name": "VotingPowerUpdated",
+        "type": "sage_contracts::sage_token::SAGEToken::VotingPowerUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "SecurityAuditSubmitted",
+        "type": "sage_contracts::sage_token::SAGEToken::SecurityAuditSubmitted",
+        "kind": "nested"
+      },
+      {
+        "name": "RateLimitExceeded",
+        "type": "sage_contracts::sage_token::SAGEToken::RateLimitExceeded",
+        "kind": "nested"
+      },
+      {
+        "name": "LargeTransferInitiated",
+        "type": "sage_contracts::sage_token::SAGEToken::LargeTransferInitiated",
+        "kind": "nested"
+      },
+      {
+        "name": "LargeTransferExecuted",
+        "type": "sage_contracts::sage_token::SAGEToken::LargeTransferExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "EmergencyOperationLogged",
+        "type": "sage_contracts::sage_token::SAGEToken::EmergencyOperationLogged",
+        "kind": "nested"
+      },
+      {
+        "name": "SuspiciousActivityReported",
+        "type": "sage_contracts::sage_token::SAGEToken::SuspiciousActivityReported",
+        "kind": "nested"
+      },
+      {
+        "name": "GasOptimizationToggled",
+        "type": "sage_contracts::sage_token::SAGEToken::GasOptimizationToggled",
+        "kind": "nested"
+      },
+      {
+        "name": "BatchTransferCompleted",
+        "type": "sage_contracts::sage_token::SAGEToken::BatchTransferCompleted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeAuthorized",
+        "type": "sage_contracts::sage_token::SAGEToken::UpgradeAuthorized",
+        "kind": "nested"
+      },
+      {
+        "name": "EmergencyWithdrawal",
+        "type": "sage_contracts::sage_token::SAGEToken::EmergencyWithdrawal",
+        "kind": "nested"
+      },
+      {
+        "name": "SecurityThresholdChanged",
+        "type": "sage_contracts::sage_token::SAGEToken::SecurityThresholdChanged",
+        "kind": "nested"
+      },
+      {
+        "name": "RevenueBurnRateAdjusted",
+        "type": "sage_contracts::sage_token::SAGEToken::RevenueBurnRateAdjusted",
+        "kind": "nested"
+      },
+      {
+        "name": "RevenueBurnConfigUpdated",
+        "type": "sage_contracts::sage_token::SAGEToken::RevenueBurnConfigUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "MaxSupplyWarning",
+        "type": "sage_contracts::sage_token::SAGEToken::MaxSupplyWarning",
+        "kind": "nested"
+      },
+      {
+        "name": "TokenFlowSnapshot",
+        "type": "sage_contracts::sage_token::SAGEToken::TokenFlowSnapshot",
+        "kind": "nested"
+      },
+      {
+        "name": "MilestoneReached",
+        "type": "sage_contracts::sage_token::SAGEToken::MilestoneReached",
+        "kind": "nested"
+      },
+      {
+        "name": "EcosystemEmission",
+        "type": "sage_contracts::sage_token::SAGEToken::EcosystemEmission",
+        "kind": "nested"
+      },
+      {
+        "name": "VestingReleased",
+        "type": "sage_contracts::sage_token::SAGEToken::VestingReleased",
+        "kind": "nested"
+      },
+      {
+        "name": "TGECompleted",
+        "type": "sage_contracts::sage_token::SAGEToken::TGECompleted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeScheduled",
+        "type": "sage_contracts::sage_token::SAGEToken::UpgradeScheduled",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeExecuted",
+        "type": "sage_contracts::sage_token::SAGEToken::UpgradeExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeCancelled",
+        "type": "sage_contracts::sage_token::SAGEToken::UpgradeCancelled",
+        "kind": "nested"
+      },
+      {
+        "name": "PausableEvent",
+        "type": "openzeppelin_security::pausable::PausableComponent::Event",
+        "kind": "flat"
+      },
+      {
+        "name": "UpgradeableEvent",
+        "type": "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Event",
+        "kind": "flat"
+      }
+    ]
+  }
+]
