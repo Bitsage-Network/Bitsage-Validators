@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -14,7 +14,7 @@
 /coverage
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production
@@ -63,3 +63,13 @@ contracts/devnet_accounts.json
 
 # Internal specs and knowledge base
 specs/
+
+# Rust build artifacts
+target/
+
+# Cairo build artifacts
+contracts/target/
+
+# Sensitive contract files
+contracts/account.json
+contracts/keystore.json

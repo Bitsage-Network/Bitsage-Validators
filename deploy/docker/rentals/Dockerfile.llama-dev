@@ -1,0 +1,131 @@
+# BitSage Llama Development Environment
+# GPU rental environment for LLM development with vLLM, HuggingFace, and Jupyter
+#
+# Build: docker build -f Dockerfile.llama-dev -t bitsage/rental-llama-dev:latest .
+# Run: docker run --gpus all -p 2222:22 -p 8888:8888 -p 8080:8080 \
+#      -e SSH_PASSWORD=secret -e HF_TOKEN=xxx bitsage/rental-llama-dev:latest
+
+FROM bitsage/rental-base:latest
+
+LABEL description="Llama/LLM development environment with vLLM and HuggingFace"
+LABEL bitsage.template_id="llama-3.2-dev"
+LABEL bitsage.min_vram_gb="24"
+LABEL bitsage.rate_sage_per_hour="50"
+
+# HuggingFace environment
+ENV HF_HOME=/models
+ENV HF_DATASETS_CACHE=/models/datasets
+ENV TRANSFORMERS_CACHE=/models/transformers
+
+# vLLM environment
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# Install LLM development dependencies
+RUN pip install \
+    # vLLM for high-performance inference
+    vllm>=0.4.0 \
+    # LangChain ecosystem
+    langchain \
+    langchain-core \
+    langchain-community \
+    langchain-huggingface \
+    # LLM development tools
+    openai \
+    anthropic \
+    tiktoken \
+    sentence-transformers \
+    bitsandbytes \
+    peft \
+    trl \
+    # Evaluation
+    evaluate \
+    lm-eval \
+    # Web framework for APIs
+    fastapi \
+    uvicorn[standard] \
+    gradio \
+    streamlit \
+    # Text processing
+    spacy \
+    nltk \
+    # Additional utilities
+    wandb \
+    tensorboard \
+    jupyter-ai
+
+# Download NLTK data
+RUN python -c "import nltk; nltk.download('punkt'); nltk.download('averaged_perceptron_tagger')"
+
+# Create directories
+RUN mkdir -p /models/llm /workspace/notebooks /workspace/projects
+
+# Sample notebooks for LLM development
+RUN echo 'print("BitSage Llama Development Environment")' > /workspace/notebooks/welcome.py && \
+    echo '# Welcome to BitSage LLM Dev\n\
+\n\
+This environment includes:\n\
+- vLLM for high-performance inference\n\
+- HuggingFace Transformers\n\
+- LangChain for building LLM apps\n\
+- Gradio/Streamlit for quick UIs\n\
+- PEFT/TRL for fine-tuning\n\
+\n\
+## Quick Start\n\
+\n\
+### Load a model with vLLM\n\
+```python\n\
+from vllm import LLM, SamplingParams\n\
+\n\
+llm = LLM(model="meta-llama/Llama-3.2-8B-Instruct")\n\
+output = llm.generate(["Hello, world!"], SamplingParams(temperature=0.7))\n\
+```\n\
+\n\
+### Start vLLM API server\n\
+```bash\n\
+python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3.2-8B-Instruct --port 8080\n\
+```\n\
+' > /workspace/README.md
+
+EXPOSE 22 8888 8080 7860
+
+# Extended startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Set SSH password if provided\n\
+if [ -n "$SSH_PASSWORD" ]; then\n\
+    echo "root:$SSH_PASSWORD" | chpasswd\n\
+    echo "bitsage:$SSH_PASSWORD" | chpasswd\n\
+fi\n\
+\n\
+# Set Jupyter token if provided\n\
+if [ -n "$JUPYTER_TOKEN" ]; then\n\
+    sed -i "s/c.ServerApp.token = .*/c.ServerApp.token = '"'"'$JUPYTER_TOKEN'"'"'/" /root/.jupyter/jupyter_lab_config.py\n\
+fi\n\
+\n\
+# Login to HuggingFace if token provided\n\
+if [ -n "$HF_TOKEN" ]; then\n\
+    echo "Logging into HuggingFace..."\n\
+    huggingface-cli login --token "$HF_TOKEN" 2>/dev/null || true\n\
+fi\n\
+\n\
+# Start SSH service\n\
+/usr/sbin/sshd\n\
+echo "SSH server started on port 22"\n\
+\n\
+# Optionally start vLLM server in background\n\
+if [ -n "$AUTO_START_VLLM" ] && [ -n "$MODEL_NAME" ]; then\n\
+    echo "Starting vLLM server with $MODEL_NAME..."\n\
+    python -m vllm.entrypoints.openai.api_server \\\n\
+        --model "$MODEL_NAME" \\\n\
+        --host 0.0.0.0 \\\n\
+        --port 8080 \\\n\
+        --gpu-memory-utilization 0.9 &\n\
+fi\n\
+\n\
+# Start JupyterLab\n\
+echo "Starting JupyterLab on port 8888..."\n\
+exec jupyter lab --allow-root\n\
+' > /start.sh && chmod +x /start.sh
+
+CMD ["/start.sh"]

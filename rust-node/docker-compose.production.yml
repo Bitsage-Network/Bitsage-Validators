@@ -1,0 +1,277 @@
+# BitSage Coordinator - Production Docker Compose
+# Usage: docker-compose -f docker-compose.production.yml up -d
+#
+# Prerequisites:
+#   1. Create .env file from .env.example
+#   2. Generate TLS certificates or configure Let's Encrypt
+#   3. Configure DNS for your domain
+
+version: "3.8"
+
+services:
+  # =============================================================================
+  # Traefik Reverse Proxy
+  # =============================================================================
+  traefik:
+    image: traefik:v2.10
+    container_name: bitsage-traefik
+    restart: always
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+      - traefik-logs:/var/log/traefik
+    networks:
+      - bitsage-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_USERS}"
+
+  # =============================================================================
+  # PostgreSQL Database
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: bitsage-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bitsage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-bitsage}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bitsage} -d ${POSTGRES_DB:-bitsage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bitsage-network
+
+  # =============================================================================
+  # Redis Cache (for rate limiting, sessions)
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: bitsage-redis
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bitsage-network
+
+  # =============================================================================
+  # BitSage Coordinator
+  # =============================================================================
+  coordinator:
+    image: bitsage/coordinator:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bitsage-coordinator
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - PRODUCTION=true
+      - RUST_LOG=bitsage_coordinator=info,tower_http=info
+      - BITSAGE_SERVER__HOST=0.0.0.0
+      - BITSAGE_SERVER__PORT=3030
+      - BITSAGE_DATABASE__URL=postgresql://${POSTGRES_USER:-bitsage}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bitsage}
+      - BITSAGE_DATABASE__MAX_CONNECTIONS=20
+      - BITSAGE_DATABASE__RUN_MIGRATIONS=true
+      - AUTH_JWT_SECRET=${AUTH_JWT_SECRET}
+      - WORKER_API_KEY=${WORKER_API_KEY}
+      - BITSAGE_STARKNET__RPC_URL=${STARKNET_RPC_URL}
+      - BITSAGE_STARKNET__CHAIN_ID=${STARKNET_CHAIN_ID:-mainnet}
+      - BITSAGE_STARKNET__ACCOUNT_ADDRESS=${COORDINATOR_ACCOUNT_ADDRESS}
+      - BITSAGE_STARKNET__PRIVATE_KEY=${COORDINATOR_PRIVATE_KEY}
+      - BITSAGE_STARKNET__SAGE_TOKEN_CONTRACT=${SAGE_TOKEN_CONTRACT}
+      - BITSAGE_METRICS__ENABLED=true
+      - BITSAGE_METRICS__PORT=9090
+      - BITSAGE_RENTAL__JUPYTER_DOMAIN=jupyter.${DOMAIN}
+    volumes:
+      - coordinator-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - bitsage-network
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.coordinator.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.coordinator.entrypoints=websecure"
+      - "traefik.http.routers.coordinator.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.coordinator.service=coordinator"
+      - "traefik.http.services.coordinator.loadbalancer.server.port=3030"
+      # WebSocket routes
+      - "traefik.http.routers.coordinator-ws.rule=Host(`api.${DOMAIN}`) && PathPrefix(`/ws`)"
+      - "traefik.http.routers.coordinator-ws.entrypoints=websecure"
+      - "traefik.http.routers.coordinator-ws.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.coordinator-ws.service=coordinator-ws"
+      - "traefik.http.services.coordinator-ws.loadbalancer.server.port=3030"
+      # Rate limiting
+      - "traefik.http.middlewares.coordinator-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.coordinator-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.coordinator.middlewares=coordinator-ratelimit"
+
+  # =============================================================================
+  # Prometheus Monitoring
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: bitsage-prometheus
+    restart: always
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - bitsage-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN}`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prometheus.middlewares=auth"
+
+  # =============================================================================
+  # Grafana Dashboards
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: bitsage-grafana
+    restart: always
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://grafana.${DOMAIN}
+      - GF_SMTP_ENABLED=${SMTP_ENABLED:-false}
+      - GF_SMTP_HOST=${SMTP_HOST:-}
+      - GF_SMTP_USER=${SMTP_USER:-}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD:-}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - bitsage-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+
+  # =============================================================================
+  # Alertmanager (Optional)
+  # =============================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: bitsage-alertmanager
+    restart: always
+    volumes:
+      - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - bitsage-network
+    profiles:
+      - alerting
+
+  # =============================================================================
+  # Log aggregation with Loki (Optional)
+  # =============================================================================
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: bitsage-loki
+    restart: always
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - bitsage-network
+    profiles:
+      - logging
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: bitsage-promtail
+    restart: always
+    volumes:
+      - ./deploy/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - traefik-logs:/var/log/traefik:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - bitsage-network
+    profiles:
+      - logging
+
+volumes:
+  traefik-certs:
+    driver: local
+  traefik-logs:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  coordinator-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  loki-data:
+    driver: local
+
+networks:
+  bitsage-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

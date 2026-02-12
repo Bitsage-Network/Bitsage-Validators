@@ -1,0 +1,100 @@
+# BitSage TEE Worker
+# Trusted Execution Environment prover for privacy-preserving proofs
+#
+# Supported TEE Types:
+# - Intel TDX (Trust Domain Extensions) - H100 native CC
+# - Intel SGX (Software Guard Extensions)
+# - AMD SEV-SNP (Secure Encrypted Virtualization)
+#
+# Security Features:
+# - Encrypted witness decryption inside TEE only
+# - Hardware attestation (TDX/SGX/SEV quotes)
+# - Sealed enclave keys
+# - Memory encryption
+
+# Build stage
+FROM rust:1.75-bookworm AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    clang \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy crates
+COPY crates/tee-prover ./crates/tee-prover
+COPY crates/stwo-gpu ./crates/stwo-gpu
+
+# Build TEE worker
+WORKDIR /build/crates/tee-prover
+RUN cargo build --release --bin tee-worker
+
+# Runtime stage - use Ubuntu for TEE support
+FROM ubuntu:22.04
+
+WORKDIR /app
+
+# Install runtime dependencies and TEE tools
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Intel SGX/TDX runtime (optional - for real TEE)
+# RUN wget -qO - https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key | apt-key add -
+# RUN echo 'deb [arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu jammy main' > /etc/apt/sources.list.d/intel-sgx.list
+# RUN apt-get update && apt-get install -y libsgx-epid libsgx-quote-ex libsgx-dcap-ql
+
+# Copy worker binary
+COPY --from=builder /build/crates/tee-prover/target/release/tee-worker /app/
+
+# Create data directories
+RUN mkdir -p /data/proofs /data/attestations /data/logs
+
+# Environment configuration
+ENV RUST_LOG=tee_prover=info,tee_worker=info
+
+# Coordinator connection
+ENV COORDINATOR_URL=http://coordinator:3030
+ENV WS_URL=ws://coordinator:3030
+
+# Worker configuration
+ENV WORKER_ID=
+ENV MAX_CONCURRENT_JOBS=2
+ENV HEARTBEAT_INTERVAL=30
+ENV ATTESTATION_REFRESH=300
+
+# TEE configuration
+# Options: tdx, sgx, sev, simulated
+ENV TEE_TYPE=
+
+# Data directory
+ENV DATA_DIR=/data
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:3041/health || exit 1
+
+# Expose ports
+# 3041: Health/metrics
+EXPOSE 3041
+
+# Labels
+LABEL org.opencontainers.image.title="BitSage TEE Worker"
+LABEL org.opencontainers.image.description="Trusted Execution Environment prover for privacy-preserving proofs"
+LABEL org.opencontainers.image.vendor="BitSage Network"
+
+# Security labels for TEE
+LABEL com.intel.sgx="enabled"
+LABEL com.intel.tdx="enabled"
+LABEL com.amd.sev="enabled"
+
+# Run worker
+ENTRYPOINT ["/app/tee-worker"]

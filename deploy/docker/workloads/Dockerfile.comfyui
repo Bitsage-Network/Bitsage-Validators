@@ -1,0 +1,72 @@
+# BitSage ComfyUI Workload
+# GPU-accelerated image generation with ComfyUI
+#
+# Build: docker build -f Dockerfile.comfyui -t bitsage/comfyui:latest .
+# Run: docker run --gpus all -p 8188:8188 bitsage/comfyui:latest
+
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="ComfyUI for AI image generation"
+LABEL bitsage.workload_id="comfyui-studio"
+LABEL bitsage.min_vram_gb="12"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    git \
+    curl \
+    wget \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+RUN python -m pip install --upgrade pip
+
+WORKDIR /workspace
+
+# Clone ComfyUI
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
+
+WORKDIR /workspace/ComfyUI
+
+# Install PyTorch with CUDA support
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install ComfyUI dependencies
+RUN pip install -r requirements.txt
+
+# Create model directories
+RUN mkdir -p models/checkpoints models/clip models/vae models/loras models/controlnet
+
+# Expose ComfyUI port
+EXPOSE 8188
+
+# Startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "Starting ComfyUI..."\n\
+\n\
+# Download SDXL base model if not present\n\
+if [ ! -f "models/checkpoints/sd_xl_base_1.0.safetensors" ]; then\n\
+    echo "Note: No SDXL model found. Mount a volume with models or download manually."\n\
+fi\n\
+\n\
+python main.py --listen 0.0.0.0 --port 8188\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8188/ || exit 1
+
+CMD ["/workspace/start.sh"]

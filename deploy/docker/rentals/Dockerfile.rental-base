@@ -1,0 +1,159 @@
+# BitSage GPU Rental Base Image
+# Interactive development environment with SSH and JupyterLab
+#
+# Build: docker build -f Dockerfile.rental-base -t bitsage/rental-base:latest .
+# Run: docker run --gpus all -p 2222:22 -p 8888:8888 bitsage/rental-base:latest
+
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Base image for BitSage GPU rentals with SSH and Jupyter"
+LABEL bitsage.rental="true"
+LABEL bitsage.template_type="base"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Python environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV JUPYTER_TOKEN=""
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # SSH Server
+    openssh-server \
+    # Core utilities
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    gnupg \
+    sudo \
+    # Python
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    # Build tools
+    build-essential \
+    cmake \
+    ninja-build \
+    # Development tools
+    htop \
+    nvtop \
+    vim \
+    nano \
+    tmux \
+    screen \
+    tree \
+    jq \
+    zip \
+    unzip \
+    # Networking
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    netcat-openbsd \
+    # Version control
+    git-lfs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# Install JupyterLab and common data science libraries
+RUN pip install \
+    jupyterlab>=4.0.0 \
+    ipykernel \
+    ipywidgets \
+    jupyterlab-git \
+    jupyterlab-lsp \
+    python-lsp-server \
+    # Core ML
+    torch==2.2.0 \
+    numpy \
+    scipy \
+    pandas \
+    matplotlib \
+    seaborn \
+    plotly \
+    # ML/AI
+    transformers \
+    accelerate \
+    datasets \
+    tokenizers \
+    safetensors \
+    sentencepiece \
+    # Utilities
+    requests \
+    httpx \
+    tqdm \
+    pyyaml \
+    python-dotenv \
+    rich \
+    typer
+
+# Create workspace and models directories
+RUN mkdir -p /workspace /models /data
+
+# Create a non-root user for security (optional - can use root for flexibility)
+RUN useradd -m -s /bin/bash -G sudo bitsage && \
+    echo "bitsage:bitsage" | chpasswd && \
+    echo "bitsage ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup JupyterLab configuration
+RUN mkdir -p /root/.jupyter && \
+    echo "c.ServerApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.port = 8888" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.open_browser = False" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.allow_root = True" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.allow_origin = '*'" >> /root/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.token = ''" >> /root/.jupyter/jupyter_lab_config.py
+
+WORKDIR /workspace
+
+# Expose SSH and Jupyter ports
+EXPOSE 22 8888
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Set SSH password if provided\n\
+if [ -n "$SSH_PASSWORD" ]; then\n\
+    echo "root:$SSH_PASSWORD" | chpasswd\n\
+    echo "bitsage:$SSH_PASSWORD" | chpasswd\n\
+fi\n\
+\n\
+# Set Jupyter token if provided\n\
+if [ -n "$JUPYTER_TOKEN" ]; then\n\
+    sed -i "s/c.ServerApp.token = .*/c.ServerApp.token = '"'"'$JUPYTER_TOKEN'"'"'/" /root/.jupyter/jupyter_lab_config.py\n\
+fi\n\
+\n\
+# Start SSH service\n\
+/usr/sbin/sshd\n\
+echo "SSH server started on port 22"\n\
+\n\
+# Start JupyterLab\n\
+echo "Starting JupyterLab on port 8888..."\n\
+exec jupyter lab --allow-root\n\
+' > /start.sh && chmod +x /start.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8888/api || exit 1
+
+CMD ["/start.sh"]

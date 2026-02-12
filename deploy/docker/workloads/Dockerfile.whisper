@@ -1,0 +1,108 @@
+# BitSage Whisper Workload
+# Audio transcription with OpenAI Whisper
+#
+# Build: docker build -f Dockerfile.whisper -t bitsage/whisper-large:latest .
+# Run: docker run --gpus all -p 8080:8080 bitsage/whisper-large:latest
+
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Whisper large audio transcription"
+LABEL bitsage.workload_id="whisper-transcribe"
+LABEL bitsage.min_vram_gb="8"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    git \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+RUN python -m pip install --upgrade pip
+
+# Install Whisper and dependencies
+RUN pip install \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip install \
+    openai-whisper \
+    faster-whisper \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    aiofiles
+
+WORKDIR /workspace
+
+# Create API server
+RUN echo 'import os\n\
+import tempfile\n\
+from fastapi import FastAPI, UploadFile, File, HTTPException\n\
+from faster_whisper import WhisperModel\n\
+\n\
+app = FastAPI(title="BitSage Whisper API")\n\
+model = None\n\
+\n\
+@app.on_event("startup")\n\
+async def load_model():\n\
+    global model\n\
+    model_size = os.getenv("MODEL_SIZE", "large-v3")\n\
+    print(f"Loading Whisper model: {model_size}")\n\
+    model = WhisperModel(model_size, device="cuda", compute_type="float16")\n\
+    print("Model loaded successfully")\n\
+\n\
+@app.get("/health")\n\
+async def health():\n\
+    return {"status": "ready" if model else "loading"}\n\
+\n\
+@app.post("/transcribe")\n\
+async def transcribe(file: UploadFile = File(...), language: str = None):\n\
+    if not model:\n\
+        raise HTTPException(503, "Model not loaded")\n\
+    \n\
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:\n\
+        content = await file.read()\n\
+        tmp.write(content)\n\
+        tmp.flush()\n\
+        \n\
+        segments, info = model.transcribe(\n\
+            tmp.name,\n\
+            language=language,\n\
+            beam_size=5\n\
+        )\n\
+        \n\
+        result = {\n\
+            "language": info.language,\n\
+            "language_probability": info.language_probability,\n\
+            "duration": info.duration,\n\
+            "segments": [\n\
+                {\n\
+                    "start": seg.start,\n\
+                    "end": seg.end,\n\
+                    "text": seg.text\n\
+                }\n\
+                for seg in segments\n\
+            ]\n\
+        }\n\
+        result["text"] = " ".join(s["text"] for s in result["segments"])\n\
+        \n\
+    return result\n\
+\n\
+if __name__ == "__main__":\n\
+    import uvicorn\n\
+    uvicorn.run(app, host="0.0.0.0", port=8080)\n\
+' > /workspace/server.py
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["python", "/workspace/server.py"]

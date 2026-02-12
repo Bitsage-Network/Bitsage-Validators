@@ -1,0 +1,94 @@
+[package]
+name = "bitsage-coordinator"
+version = "0.1.0"
+edition = "2021"
+description = "BitSage Network Coordinator Node - Proof routing and worker orchestration"
+authors = ["BitSage Network <dev@bitsage.network>"]
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full", "signal"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "request-id", "timeout", "limit"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# WebSocket
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+# Cryptography
+ring = "0.17"
+sha2 = "0.10"
+hex = "0.4"
+
+# Authentication
+jsonwebtoken = "9.2"
+argon2 = "0.5"
+
+# Starknet
+starknet = "0.9"
+starknet-crypto = "0.6"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "uuid"] }
+
+# STWO prover (when available as crate)
+# stwo-prover = { path = "../crates/stwo-gpu" }
+
+# TEE attestation
+# tee-attestation = { path = "../crates/tee-prover/host" }
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1.0"
+rand = "0.8"
+once_cell = "1.19"
+parking_lot = "0.12"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# URL parsing
+url = "2.5"
+
+# Metrics
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# Rate limiting
+governor = "0.6"
+
+# Validation
+validator = { version = "0.16", features = ["derive"] }
+regex = "1.10"
+
+# Docker API
+bollard = "0.16"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = ["tee", "gpu"]
+tee = []
+gpu = []
+
+[[bin]]
+name = "bitsage-coordinator"
+path = "src/main.rs"

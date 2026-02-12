@@ -1,0 +1,61 @@
+[package]
+name = "tee-prover"
+version = "0.1.0"
+edition = "2021"
+description = "TEE-based STWO prover for privacy proofs with secret witness protection"
+authors = ["BitSage Network <dev@bitsage.network>"]
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+# Core
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+
+# Async
+tokio = { version = "1.35", features = ["full", "signal"] }
+
+# Cryptography
+ring = "0.17"
+aes-gcm = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# WebSocket
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# SGX (optional)
+# sgx_types = { version = "2.0", optional = true }
+# sgx_urts = { version = "2.0", optional = true }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = []
+sgx = []
+tdx = []
+sev = []
+simulation = []  # For testing without real TEE
+
+[[bin]]
+name = "tee-worker"
+path = "src/bin/tee_worker.rs"
+
+[dev-dependencies]
+tokio-test = "0.4"

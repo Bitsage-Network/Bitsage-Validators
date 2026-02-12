@@ -1,0 +1,71 @@
+# BitSage Starknet Node Workload
+# Full Starknet node for network participation
+#
+# Build: docker build -f Dockerfile.starknet-node -t bitsage/starknet-node:latest .
+# Run: docker run -p 6060:6060 -p 9545:9545 bitsage/starknet-node:latest
+
+FROM ubuntu:22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Starknet full node"
+LABEL bitsage.workload_id="starknet-node"
+LABEL bitsage.min_vram_gb="0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    clang \
+    cmake \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /workspace
+
+# Clone and build Pathfinder (Starknet node)
+RUN git clone --branch v0.11.0 https://github.com/eqlabs/pathfinder.git /workspace/pathfinder
+
+WORKDIR /workspace/pathfinder
+
+# Build Pathfinder
+RUN cargo build --release --bin pathfinder
+
+# Create data directory
+RUN mkdir -p /data/pathfinder
+
+EXPOSE 6060 9545
+
+# Startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+NETWORK="${STARKNET_NETWORK:-mainnet}"\n\
+ETH_URL="${ETHEREUM_URL:-}"\n\
+DATA_DIR="${DATA_DIR:-/data/pathfinder}"\n\
+\n\
+echo "Starting Starknet Pathfinder node..."\n\
+echo "Network: $NETWORK"\n\
+\n\
+ARGS="--network $NETWORK --data-directory $DATA_DIR --http-rpc 0.0.0.0:6060"\n\
+\n\
+if [ -n "$ETH_URL" ]; then\n\
+    ARGS="$ARGS --ethereum.url $ETH_URL"\n\
+fi\n\
+\n\
+/workspace/pathfinder/target/release/pathfinder $ARGS\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD curl -f http://localhost:6060/health || exit 1
+
+CMD ["/workspace/start.sh"]

@@ -133,6 +133,7 @@ export default function FaucetPage() {
   const { network } = useNetwork();
   const [manualAddress, setManualAddress] = useState("");
   const [useManualAddress, setUseManualAddress] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
@@ -146,6 +147,8 @@ export default function FaucetPage() {
     twitter: { connected: false },
     discord: { connected: false },
   });
+
+  useEffect(() => { setMounted(true); }, []);
 
   // API hooks (fallback data source)
   const { data: faucetStatus, isLoading: statusLoading, refetch: refetchStatus } = useFaucetStatus(address);
@@ -191,14 +194,25 @@ export default function FaucetPage() {
     }
   }, [txData, refetchStatus, refetchOnChain, refetchStats]);
 
-  // Load completed tasks from localStorage
+  // Load completed tasks from coordinator
   useEffect(() => {
-    if (address) {
-      const tasks = localStorage.getItem(`faucet_tasks_${address}`);
-      if (tasks) {
-        setCompletedTasks(JSON.parse(tasks));
-      }
-    }
+    if (!address) return;
+
+    const coordinatorUrl = process.env.NEXT_PUBLIC_COORDINATOR_URL || 'http://localhost:8080';
+    fetch(`${coordinatorUrl}/api/faucet/social-tasks/${address}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.completions) {
+          setCompletedTasks(data.completions.map((c: { task_id: string }) => c.task_id));
+        }
+      })
+      .catch(() => {
+        // Fallback to localStorage if coordinator is unavailable
+        const tasks = localStorage.getItem(`faucet_tasks_${address}`);
+        if (tasks) {
+          setCompletedTasks(JSON.parse(tasks));
+        }
+      });
   }, [address]);
 
   // Fetch social connection status
@@ -301,10 +315,8 @@ export default function FaucetPage() {
       }
 
       if (result.verified) {
-        // Mark task as completed
-        const newCompleted = [...completedTasks, task.id];
-        setCompletedTasks(newCompleted);
-        localStorage.setItem(`faucet_tasks_${address}`, JSON.stringify(newCompleted));
+        // Mark task as completed — coordinator is the source of truth
+        setCompletedTasks((prev) => [...prev, task.id]);
       } else {
         setTaskError(result.message || 'Verification failed');
       }
@@ -604,18 +616,27 @@ export default function FaucetPage() {
             ) : (
               /* Connect wallet buttons */
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  {connectors.map((connector) => (
-                    <button
-                      key={connector.id}
-                      onClick={() => connect({ connector })}
-                      className="btn-secondary flex items-center justify-center gap-2 py-3"
-                    >
+                {mounted ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    {connectors.map((connector) => (
+                      <button
+                        key={connector.id}
+                        onClick={() => connect({ connector })}
+                        className="btn-secondary flex items-center justify-center gap-2 py-3"
+                      >
+                        <Wallet className="w-4 h-4" />
+                        {connector.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="btn-secondary flex items-center justify-center gap-2 py-3 opacity-50">
                       <Wallet className="w-4 h-4" />
-                      {connector.name}
-                    </button>
-                  ))}
-                </div>
+                      Loading...
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-center text-gray-500">
                   Or <button onClick={() => setUseManualAddress(true)} className="text-emerald-400 hover:underline">paste an address</button> to receive tokens
                 </p>

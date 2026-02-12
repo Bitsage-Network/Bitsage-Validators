@@ -1,0 +1,213 @@
+[
+  {
+    "type": "impl",
+    "name": "OracleWrapperImpl",
+    "interface_name": "sage_contracts::oracle::pragma_oracle::IOracleWrapper"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::oracle::pragma_oracle::PragmaPrice",
+    "members": [
+      {
+        "name": "price",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "decimals",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "last_updated",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "num_sources",
+        "type": "core::integer::u32"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::oracle::pragma_oracle::OracleConfig",
+    "members": [
+      {
+        "name": "pragma_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "max_price_age",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "min_sources",
+        "type": "core::integer::u32"
+      },
+      {
+        "name": "use_fallback",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::oracle::pragma_oracle::CircuitBreakerConfig",
+    "members": [
+      {
+        "name": "max_deviation_bps",
+        "type": "core::integer::u16"
+      },
+      {
+        "name": "deviation_window",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "enabled",
+        "type": "core::bool"
+      },
+      {
+        "name": "tripped",
+        "type": "core::bool"
+      },
+      {
+        "name": "tripped_at",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::oracle::pragma_oracle::PricePair",
+    "variants": [
+      {
+        "name": "SAGE_USD",
+        "type": "()"
+      },
+      {
+        "name": "USDC_USD",
+        "type": "()"
+      },
+      {
+        "name": "ETH_USD",
+        "type": "()"
+      },
+      {
+        "name": "STRK_USD",
+        "type": "()"
+      },
+      {
+        "name": "BTC_USD",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::oracle::pragma_oracle::IOracleWrapper",
+    "items": [
+      {
+        "type": "function",
+        "name": "get_price",
+        "inputs": [
+          {
+            "name": "pair",
+            "type": "sage_contracts::oracle::pragma_oracle::PricePair"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::oracle::pragma_oracle::PragmaPrice"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_price_usd",
+        "inputs": [
+          {
+            "name": "pair",
+            "type": "sage_contracts::oracle::pragma_oracle::PricePair"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_sage_price",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u256"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_config",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::oracle::pragma_oracle::OracleConfig"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_circuit_breaker_tripped",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_circuit_breaker_config",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::oracle::pragma_oracle::CircuitBreakerConfig"
+          }
+        ],
+        "state_mutability": "view"
+      }
+    ]
+  }
+]

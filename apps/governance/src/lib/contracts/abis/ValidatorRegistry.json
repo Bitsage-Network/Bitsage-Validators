@@ -1,0 +1,794 @@
+[
+  {
+    "type": "impl",
+    "name": "ValidatorRegistryImpl",
+    "interface_name": "sage_contracts::obelysk::validator_registry::IValidatorRegistry"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorStatus",
+    "variants": [
+      {
+        "name": "Pending",
+        "type": "()"
+      },
+      {
+        "name": "Active",
+        "type": "()"
+      },
+      {
+        "name": "Jailed",
+        "type": "()"
+      },
+      {
+        "name": "Tombstoned",
+        "type": "()"
+      },
+      {
+        "name": "Exited",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorInfo",
+    "members": [
+      {
+        "name": "address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "operator",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "total_stake",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "self_stake",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "compute_weight",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "effective_weight",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "commission_bps",
+        "type": "core::integer::u16"
+      },
+      {
+        "name": "status",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorStatus"
+      },
+      {
+        "name": "blocks_produced",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "proofs_verified",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "last_active_epoch",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "jail_release_epoch",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "attestation_hash",
+        "type": "core::felt252"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorSet",
+    "members": [
+      {
+        "name": "count",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "total_weight",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "epoch",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorStats",
+    "members": [
+      {
+        "name": "total_registered",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "active_count",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "jailed_count",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "total_stake",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "total_compute_weight",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "current_epoch",
+        "type": "core::integer::u64"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "sage_contracts::obelysk::validator_registry::IValidatorRegistry",
+    "items": [
+      {
+        "type": "function",
+        "name": "register",
+        "inputs": [
+          {
+            "name": "operator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "commission_bps",
+            "type": "core::integer::u16"
+          },
+          {
+            "name": "attestation_hash",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "update_validator",
+        "inputs": [
+          {
+            "name": "commission_bps",
+            "type": "core::integer::u16"
+          },
+          {
+            "name": "attestation_hash",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "exit",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "add_stake",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "remove_stake",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "record_compute_work",
+        "inputs": [
+          {
+            "name": "validator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "weight",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "jail",
+        "inputs": [
+          {
+            "name": "validator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "epochs",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "unjail",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "tombstone",
+        "inputs": [
+          {
+            "name": "validator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "update_validator_set",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "advance_epoch",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_validator",
+        "inputs": [
+          {
+            "name": "validator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::validator_registry::ValidatorInfo"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_validator_set",
+        "inputs": [
+          {
+            "name": "epoch",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::validator_registry::ValidatorSet"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_stats",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "sage_contracts::obelysk::validator_registry::ValidatorStats"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_current_epoch",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "is_active_validator",
+        "inputs": [
+          {
+            "name": "validator",
+            "type": "core::starknet::contract_address::ContractAddress"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::bool"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_active_validators",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::array::Array::<core::starknet::contract_address::ContractAddress>"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "schedule_upgrade",
+        "inputs": [
+          {
+            "name": "new_class_hash",
+            "type": "core::starknet::class_hash::ClassHash"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "execute_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "cancel_upgrade",
+        "inputs": [],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_upgrade_info",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "(core::starknet::class_hash::ClassHash, core::integer::u64, core::integer::u64)"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "set_upgrade_delay",
+        "inputs": [
+          {
+            "name": "delay",
+            "type": "core::integer::u64"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "sage_token",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorRegistered",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "operator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "commission_bps",
+        "type": "core::integer::u16",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "commission_bps",
+        "type": "core::integer::u16",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorJailed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "release_epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorUnjailed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorTombstoned",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorExited",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::StakeAdded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_total",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::StakeRemoved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_total",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ComputeWorkRecorded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "validator",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "weight",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "new_compute_weight",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorSetUpdated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "count",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "total_weight",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::EpochAdvanced",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "old_epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "new_epoch",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeScheduled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "scheduled_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "execute_after",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "scheduled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeExecuted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "new_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "executed_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "executed_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeCancelled",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "cancelled_class_hash",
+        "type": "core::starknet::class_hash::ClassHash",
+        "kind": "key"
+      },
+      {
+        "name": "cancelled_at",
+        "type": "core::integer::u64",
+        "kind": "data"
+      },
+      {
+        "name": "cancelled_by",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "ValidatorRegistered",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorRegistered",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorUpdated",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorJailed",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorJailed",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorUnjailed",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorUnjailed",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorTombstoned",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorTombstoned",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorExited",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorExited",
+        "kind": "nested"
+      },
+      {
+        "name": "StakeAdded",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::StakeAdded",
+        "kind": "nested"
+      },
+      {
+        "name": "StakeRemoved",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::StakeRemoved",
+        "kind": "nested"
+      },
+      {
+        "name": "ComputeWorkRecorded",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ComputeWorkRecorded",
+        "kind": "nested"
+      },
+      {
+        "name": "ValidatorSetUpdated",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::ValidatorSetUpdated",
+        "kind": "nested"
+      },
+      {
+        "name": "EpochAdvanced",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::EpochAdvanced",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeScheduled",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeScheduled",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeExecuted",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeExecuted",
+        "kind": "nested"
+      },
+      {
+        "name": "UpgradeCancelled",
+        "type": "sage_contracts::obelysk::validator_registry::ValidatorRegistry::UpgradeCancelled",
+        "kind": "nested"
+      }
+    ]
+  }
+]

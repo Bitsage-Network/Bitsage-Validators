@@ -1,0 +1,152 @@
+# BitSage ComfyUI Studio
+# GPU rental environment for AI image/video generation with ComfyUI
+#
+# Build: docker build -f Dockerfile.comfyui-studio -t bitsage/rental-comfyui:latest .
+# Run: docker run --gpus all -p 2222:22 -p 8888:8888 -p 8188:8188 \
+#      -e SSH_PASSWORD=secret bitsage/rental-comfyui:latest
+
+FROM bitsage/rental-base:latest
+
+LABEL description="ComfyUI studio for AI image and video generation"
+LABEL bitsage.template_id="comfyui-studio"
+LABEL bitsage.min_vram_gb="12"
+LABEL bitsage.rate_sage_per_hour="30"
+
+# ComfyUI environment
+ENV COMFYUI_PATH=/workspace/ComfyUI
+ENV HF_HOME=/models
+ENV CIVITAI_API_KEY=""
+
+# Install additional dependencies for image/video processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libffi-dev \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install image/video processing libraries
+RUN pip install \
+    # Image processing
+    opencv-python-headless \
+    Pillow \
+    imageio \
+    imageio-ffmpeg \
+    # Diffusers ecosystem
+    diffusers \
+    xformers \
+    # ComfyUI related
+    aiohttp \
+    einops \
+    kornia \
+    pytorch-lightning \
+    omegaconf \
+    # Video processing
+    moviepy \
+    av \
+    # Utilities
+    gdown \
+    aria2p
+
+# Clone ComfyUI
+WORKDIR /workspace
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
+    cd ComfyUI && \
+    pip install -r requirements.txt
+
+# Install popular ComfyUI custom nodes
+WORKDIR /workspace/ComfyUI/custom_nodes
+RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
+    cd ComfyUI-Manager && pip install -r requirements.txt || true
+
+RUN git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git && \
+    cd comfyui_controlnet_aux && pip install -r requirements.txt || true
+
+RUN git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
+    cd ComfyUI-VideoHelperSuite && pip install -r requirements.txt || true
+
+RUN git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git || true
+
+# Create model directories
+RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
+    /workspace/ComfyUI/models/loras \
+    /workspace/ComfyUI/models/controlnet \
+    /workspace/ComfyUI/models/vae \
+    /workspace/ComfyUI/models/upscale_models \
+    /workspace/ComfyUI/models/clip \
+    /workspace/ComfyUI/models/ipadapter \
+    /workspace/output \
+    /workspace/notebooks
+
+WORKDIR /workspace
+
+# Create README
+RUN echo '# BitSage ComfyUI Studio\n\
+\n\
+This environment includes:\n\
+- ComfyUI with popular custom nodes\n\
+- ComfyUI Manager for easy node installation\n\
+- ControlNet Aux preprocessors\n\
+- Video Helper Suite\n\
+- IP-Adapter Plus\n\
+\n\
+## Quick Start\n\
+\n\
+### Access ComfyUI\n\
+ComfyUI runs on port 8188: http://localhost:8188\n\
+\n\
+### Download Models\n\
+Place models in the appropriate directories:\n\
+- `/workspace/ComfyUI/models/checkpoints/` - SD/SDXL models\n\
+- `/workspace/ComfyUI/models/loras/` - LoRA models\n\
+- `/workspace/ComfyUI/models/controlnet/` - ControlNet models\n\
+\n\
+### Example: Download SDXL\n\
+```bash\n\
+cd /workspace/ComfyUI/models/checkpoints\n\
+wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors\n\
+```\n\
+\n\
+### API Access\n\
+ComfyUI API is available at http://localhost:8188/api\n\
+' > /workspace/README.md
+
+EXPOSE 22 8888 8188
+
+# Extended startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Set SSH password if provided\n\
+if [ -n "$SSH_PASSWORD" ]; then\n\
+    echo "root:$SSH_PASSWORD" | chpasswd\n\
+    echo "bitsage:$SSH_PASSWORD" | chpasswd\n\
+fi\n\
+\n\
+# Set Jupyter token if provided\n\
+if [ -n "$JUPYTER_TOKEN" ]; then\n\
+    sed -i "s/c.ServerApp.token = .*/c.ServerApp.token = '"'"'$JUPYTER_TOKEN'"'"'/" /root/.jupyter/jupyter_lab_config.py\n\
+fi\n\
+\n\
+# Start SSH service\n\
+/usr/sbin/sshd\n\
+echo "SSH server started on port 22"\n\
+\n\
+# Start JupyterLab in background\n\
+echo "Starting JupyterLab on port 8888..."\n\
+jupyter lab --allow-root &\n\
+\n\
+# Start ComfyUI\n\
+echo "Starting ComfyUI on port 8188..."\n\
+cd /workspace/ComfyUI\n\
+exec python main.py --listen 0.0.0.0 --port 8188\n\
+' > /start.sh && chmod +x /start.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8188/system_stats || exit 1
+
+CMD ["/start.sh"]

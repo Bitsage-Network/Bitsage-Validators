@@ -1,0 +1,68 @@
+# BitSage Workload Base Image
+# Provides common dependencies for GPU workloads
+#
+# Build: docker build -f Dockerfile.base -t bitsage/workload-base:latest .
+
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Base image for BitSage GPU workloads"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Common environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core utilities
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    gnupg \
+    # Python
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    # Build tools (for some Python packages)
+    build-essential \
+    # Useful tools
+    htop \
+    vim \
+    jq \
+    # Networking
+    net-tools \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# Install common ML libraries
+RUN pip install \
+    torch==2.2.0 \
+    numpy \
+    requests \
+    tqdm \
+    pyyaml \
+    python-dotenv
+
+# Create workspace directory
+WORKDIR /workspace
+
+# Health check endpoint (optional - workloads can override)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Default command (workloads should override)
+CMD ["python", "-c", "print('BitSage workload base image. Override CMD in your Dockerfile.')"]

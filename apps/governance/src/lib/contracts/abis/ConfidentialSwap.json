@@ -1,0 +1,94 @@
+[
+  {
+    "type": "function",
+    "name": "create_order",
+    "inputs": [
+      {
+        "name": "give_asset",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "want_asset",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "encrypted_give_c1_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_give_c1_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_give_c2_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_give_c2_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_want_c1_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_want_c1_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_want_c2_x",
+        "type": "core::felt252"
+      },
+      {
+        "name": "encrypted_want_c2_y",
+        "type": "core::felt252"
+      },
+      {
+        "name": "rate_commitment",
+        "type": "core::felt252"
+      },
+      {
+        "name": "min_fill_pct",
+        "type": "core::integer::u8"
+      },
+      {
+        "name": "expiry_duration",
+        "type": "core::integer::u64"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "core::integer::u256"
+      }
+    ],
+    "state_mutability": "external"
+  },
+  {
+    "type": "function",
+    "name": "get_order",
+    "inputs": [
+      {
+        "name": "order_id",
+        "type": "core::integer::u256"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "(core::integer::u256, core::starknet::contract_address::ContractAddress, core::integer::u64, core::integer::u64, core::felt252, core::integer::u8, core::integer::u64, core::integer::u8)"
+      }
+    ],
+    "state_mutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancel_order",
+    "inputs": [
+      {
+        "name": "order_id",
+        "type": "core::integer::u256"
+      }
+    ],
+    "outputs": [],
+    "state_mutability": "external"
+  }
+]

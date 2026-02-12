@@ -1,0 +1,129 @@
+# BitSage Alert Rules
+groups:
+  - name: bitsage-coordinator
+    rules:
+      # Coordinator down
+      - alert: CoordinatorDown
+        expr: up{job="bitsage-coordinator"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "BitSage Coordinator is down"
+          description: "The coordinator has been unreachable for more than 1 minute."
+
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="bitsage-coordinator", status=~"5.."}[5m])) /
+          sum(rate(http_requests_total{job="bitsage-coordinator"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on BitSage API"
+          description: "More than 5% of requests are failing."
+
+      # High latency
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="bitsage-coordinator"}[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "95th percentile latency is above 2 seconds."
+
+      # No workers available
+      - alert: NoWorkersAvailable
+        expr: bitsage_active_workers == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No GPU workers available"
+          description: "There are no active GPU workers connected to the coordinator."
+
+      # Low worker count
+      - alert: LowWorkerCount
+        expr: bitsage_active_workers < 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low GPU worker count"
+          description: "Only {{ $value }} workers are connected."
+
+  - name: bitsage-proofs
+    rules:
+      # High proof failure rate
+      - alert: HighProofFailureRate
+        expr: |
+          sum(rate(bitsage_proofs_total{status="failure"}[15m])) /
+          sum(rate(bitsage_proofs_total[15m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High proof failure rate"
+          description: "More than 10% of proofs are failing."
+
+      # Slow proof generation
+      - alert: SlowProofGeneration
+        expr: |
+          histogram_quantile(0.95, sum(rate(bitsage_proof_duration_seconds_bucket[15m])) by (le, circuit)) > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow proof generation"
+          description: "95th percentile proof generation time is above 2 minutes."
+
+  - name: bitsage-rentals
+    rules:
+      # Rental deployment failures
+      - alert: RentalDeploymentFailures
+        expr: |
+          sum(rate(bitsage_deployments_total{status="failure"}[15m])) /
+          sum(rate(bitsage_deployments_total[15m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rental deployment failure rate"
+          description: "More than 20% of rental deployments are failing."
+
+      # No GPUs available
+      - alert: NoGpusAvailable
+        expr: bitsage_gpus_available == 0 and bitsage_gpus_in_use > 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "All GPUs in use"
+          description: "All registered GPUs are currently rented."
+
+  - name: infrastructure
+    rules:
+      # Database connection issues
+      - alert: DatabaseConnectionIssues
+        expr: bitsage_db_connections_active / bitsage_db_connections_size > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of database connections are in use."
+
+      # High memory usage (if container metrics available)
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{name="bitsage-coordinator"} /
+          container_spec_memory_limit_bytes{name="bitsage-coordinator"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on coordinator"
+          description: "Memory usage is above 90%."

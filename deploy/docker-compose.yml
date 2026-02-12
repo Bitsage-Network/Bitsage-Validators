@@ -1,0 +1,277 @@
+# BitSage Validator Node Stack
+# Complete deployment for GPU validators with privacy features
+#
+# Services:
+# - coordinator: Proof routing and worker orchestration
+# - gpu-worker: CUDA-accelerated STWO prover
+# - tee-worker: Privacy-preserving proofs with TEE (TDX/SGX/SEV)
+# - dashboard: Next.js web interface
+# - prometheus/grafana: Monitoring (optional)
+#
+# Usage:
+#   docker compose up -d                    # Start core services
+#   docker compose --profile tee up -d      # Include TEE worker
+#   docker compose --profile monitoring up  # Include monitoring
+
+version: "3.8"
+
+services:
+  # =============================================================================
+  # Coordinator Node
+  # Handles proof routing, worker orchestration, and Starknet interactions
+  # Routes compute jobs to GPU workers, privacy jobs to TEE workers
+  # =============================================================================
+  coordinator:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.coordinator
+    container_name: bitsage-coordinator
+    restart: unless-stopped
+    ports:
+      - "${COORDINATOR_PORT:-3030}:3030"
+    volumes:
+      - coordinator-data:/data
+      - ./config:/app/config:ro
+    environment:
+      - RUST_LOG=${RUST_LOG:-bitsage_coordinator=info,tower_http=info}
+      - STARKNET_RPC_URL=${STARKNET_RPC_URL:-https://starknet-sepolia.public.blastapi.io}
+      - VALIDATOR_ADDRESS=${VALIDATOR_ADDRESS}
+      - VALIDATOR_PRIVATE_KEY=${VALIDATOR_PRIVATE_KEY}
+      - DATA_DIR=/data
+      # Worker pool configuration
+      - GPU_WORKER_POOL_SIZE=${GPU_WORKER_POOL_SIZE:-4}
+      - TEE_WORKER_POOL_SIZE=${TEE_WORKER_POOL_SIZE:-2}
+      # Circuit configuration
+      - CIRCUIT_CDN_URL=${CIRCUIT_CDN_URL:-https://circuits.bitsage.network}
+      # Privacy pools contracts
+      - PRIVACY_POOLS_ADDRESS=${PRIVACY_POOLS_ADDRESS:-0xd85ad03dcd91a075bef0f4226149cb7e43da795d2c1d33e3227c68bfbb78a7}
+      - PRIVACY_ROUTER_ADDRESS=${PRIVACY_ROUTER_ADDRESS:-0x7d1a6c242a4f0573696e117790f431fd60518a000b85fe5ee507456049ffc53}
+    networks:
+      - bitsage-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
+  # GPU Worker
+  # CUDA-accelerated STWO prover for compute-intensive proofs
+  # Handles: AI Inference, Data Pipeline, ML Training, Generic Compute
+  # =============================================================================
+  gpu-worker:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.gpu-worker
+    container_name: bitsage-gpu-worker
+    restart: unless-stopped
+    # NVIDIA Container Runtime
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - gpu-worker-data:/data
+      - proofs-volume:/data/proofs
+    environment:
+      - RUST_LOG=${RUST_LOG:-stwo_gpu=info}
+      - COORDINATOR_URL=http://coordinator:3030
+      - WS_URL=ws://coordinator:3030
+      - WORKER_ID=${GPU_WORKER_ID:-gpu-worker-1}
+      - MAX_CONCURRENT_JOBS=${GPU_MAX_JOBS:-4}
+      - HEARTBEAT_INTERVAL=30
+      # GPU configuration
+      - GPU_BACKEND=cuda
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-all}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.9}
+      - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-1024}
+    networks:
+      - bitsage-network
+    depends_on:
+      coordinator:
+        condition: service_healthy
+
+  # =============================================================================
+  # TEE Worker (Privacy Proofs)
+  # Trusted Execution Environment for privacy-preserving proofs
+  # Handles: Privacy Withdraw, Privacy Transfer, Confidential Swap
+  # Supports: Intel TDX (H100), SGX, AMD SEV
+  # =============================================================================
+  tee-worker:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.tee-worker
+    container_name: bitsage-tee-worker
+    restart: unless-stopped
+    # For TDX on H100, may need special runtime
+    # runtime: intel-tdx
+    volumes:
+      - tee-worker-data:/data
+      - proofs-volume:/data/proofs
+      # Mount TEE device if available
+      - /dev/tdx_guest:/dev/tdx_guest:ro
+      - /dev/sgx_enclave:/dev/sgx_enclave:ro
+    environment:
+      - RUST_LOG=${RUST_LOG:-tee_prover=info}
+      - COORDINATOR_URL=http://coordinator:3030
+      - WS_URL=ws://coordinator:3030
+      - WORKER_ID=${TEE_WORKER_ID:-tee-worker-1}
+      - MAX_CONCURRENT_JOBS=${TEE_MAX_JOBS:-2}
+      - HEARTBEAT_INTERVAL=30
+      - ATTESTATION_REFRESH=300
+      # TEE type: tdx (H100), sgx, sev, simulated
+      - TEE_TYPE=${TEE_TYPE:-}
+    networks:
+      - bitsage-network
+    profiles:
+      - tee
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    # Security options for TEE
+    security_opt:
+      - no-new-privileges:true
+    # Required for SGX/TDX
+    devices:
+      - /dev/tdx_guest
+      - /dev/sgx_enclave
+      - /dev/sgx_provision
+
+  # =============================================================================
+  # Additional GPU Workers (Scale Out)
+  # =============================================================================
+  gpu-worker-2:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.gpu-worker
+    container_name: bitsage-gpu-worker-2
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']  # Second GPU
+              capabilities: [gpu]
+    volumes:
+      - gpu-worker-2-data:/data
+      - proofs-volume:/data/proofs
+    environment:
+      - RUST_LOG=${RUST_LOG:-stwo_gpu=info}
+      - COORDINATOR_URL=http://coordinator:3030
+      - WS_URL=ws://coordinator:3030
+      - WORKER_ID=gpu-worker-2
+      - MAX_CONCURRENT_JOBS=${GPU_MAX_JOBS:-4}
+      - CUDA_VISIBLE_DEVICES=1
+      - GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.9}
+    networks:
+      - bitsage-network
+    profiles:
+      - multi-gpu
+    depends_on:
+      coordinator:
+        condition: service_healthy
+
+  # =============================================================================
+  # Dashboard
+  # Next.js web interface for validator management
+  # =============================================================================
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.dashboard
+      args:
+        - NEXT_PUBLIC_RPC_URL=${NEXT_PUBLIC_RPC_URL:-https://starknet-sepolia.public.blastapi.io}
+        - NEXT_PUBLIC_COORDINATOR_URL=${NEXT_PUBLIC_COORDINATOR_URL:-http://localhost:3030}
+        - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:3030/ws/prover}
+    container_name: bitsage-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - bitsage-network
+    depends_on:
+      coordinator:
+        condition: service_healthy
+
+  # =============================================================================
+  # Prometheus (Metrics Collection)
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: bitsage-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    networks:
+      - bitsage-network
+    profiles:
+      - monitoring
+
+  # =============================================================================
+  # Grafana (Metrics Visualization)
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: bitsage-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-bitsage}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - bitsage-network
+    profiles:
+      - monitoring
+    depends_on:
+      - prometheus
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  bitsage-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  coordinator-data:
+    driver: local
+  gpu-worker-data:
+    driver: local
+  gpu-worker-2-data:
+    driver: local
+  tee-worker-data:
+    driver: local
+  proofs-volume:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

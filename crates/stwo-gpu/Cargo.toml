@@ -1,0 +1,69 @@
+[package]
+name = "stwo-gpu"
+version = "0.1.0"
+edition = "2021"
+description = "GPU-accelerated STWO prover for BitSage Network"
+authors = ["BitSage Network <dev@bitsage.network>"]
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# STWO core
+# stwo-prover = "0.1"  # When available on crates.io
+
+# FFI
+libc = "0.2"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptography
+sha2 = "0.10"
+hex = "0.4"
+
+# Utilities
+thiserror = "1.0"
+tracing = "0.1"
+
+# Platform-specific
+[target.'cfg(target_os = "linux")'.dependencies]
+# CUDA - commented out until needed for actual CUDA build
+# cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
+# cust = { version = "0.3", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Metal
+metal-rs = { version = "0.28", package = "metal", optional = true }
+objc = { version = "0.2", optional = true }
+
+# HTTP client for coordinator communication
+reqwest = { version = "0.11", features = ["json"] }
+
+# WebSocket for job streaming
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+# UUID for job IDs
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Tracing subscriber for binary
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+
+[features]
+default = []
+# cuda = ["dep:cuda-runtime-sys", "dep:cust"]  # Enable when CUDA deps are available
+metal = ["dep:metal-rs", "dep:objc"]
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"
+
+[[bin]]
+name = "stwo-gpu-worker"
+path = "src/bin/worker.rs"

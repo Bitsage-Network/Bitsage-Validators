@@ -1,0 +1,74 @@
+# BitSage Llama 3.2 LLM Workload
+# GPU-accelerated Llama 3.2 inference with vLLM
+#
+# Build: docker build -f Dockerfile.llama-3.2 -t bitsage/llama-3.2:latest .
+# Run: docker run --gpus all -p 8080:8080 -e HF_TOKEN=xxx bitsage/llama-3.2:latest
+
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+LABEL maintainer="BitSage Team"
+LABEL description="Llama 3.2 inference with vLLM"
+LABEL bitsage.workload_id="llama-3.2"
+LABEL bitsage.min_vram_gb="24"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/models
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+RUN python -m pip install --upgrade pip
+
+# Install vLLM and dependencies
+RUN pip install \
+    vllm==0.4.0 \
+    transformers \
+    accelerate \
+    huggingface_hub \
+    fastapi \
+    uvicorn
+
+RUN mkdir -p /models
+
+EXPOSE 8080
+WORKDIR /workspace
+
+# Startup script with HuggingFace token support for gated models
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+MODEL="${MODEL_NAME:-meta-llama/Llama-3.2-8B-Instruct}"\n\
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"\n\
+GPU_MEMORY="${GPU_MEMORY_UTILIZATION:-0.9}"\n\
+\n\
+# Login to HuggingFace if token provided\n\
+if [ -n "$HF_TOKEN" ]; then\n\
+    echo "Logging into HuggingFace..."\n\
+    huggingface-cli login --token "$HF_TOKEN"\n\
+fi\n\
+\n\
+echo "Starting Llama 3.2 with vLLM..."\n\
+echo "Model: $MODEL"\n\
+\n\
+python -m vllm.entrypoints.openai.api_server \\\n\
+    --model "$MODEL" \\\n\
+    --host 0.0.0.0 \\\n\
+    --port 8080 \\\n\
+    --max-model-len "$MAX_MODEL_LEN" \\\n\
+    --gpu-memory-utilization "$GPU_MEMORY"\n\
+' > /workspace/start.sh && chmod +x /workspace/start.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["/workspace/start.sh"]

@@ -1,0 +1,85 @@
+# BitSage Coordinator - Development Docker Compose
+# Usage: docker-compose up -d
+
+version: "3.8"
+
+services:
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bitsage-coordinator
+    restart: unless-stopped
+    ports:
+      - "3030:3030"   # API
+      - "9090:9090"   # Metrics
+    environment:
+      - RUST_LOG=bitsage_coordinator=debug,tower_http=debug
+      - BITSAGE_SERVER__HOST=0.0.0.0
+      - BITSAGE_SERVER__PORT=3030
+      - BITSAGE_DATABASE__URL=sqlite:///app/data/bitsage.db?mode=rwc
+      - BITSAGE_DATABASE__RUN_MIGRATIONS=true
+      - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:-dev-secret-change-in-production-min32chars}
+      - BITSAGE_STARKNET__RPC_URL=${STARKNET_RPC_URL:-https://starknet-sepolia.public.blastapi.io}
+      - BITSAGE_STARKNET__CHAIN_ID=sepolia
+      - BITSAGE_METRICS__ENABLED=true
+    volumes:
+      - coordinator-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - bitsage-network
+
+  # Optional: Local Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: bitsage-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    networks:
+      - bitsage-network
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: bitsage-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - bitsage-network
+    profiles:
+      - monitoring
+
+volumes:
+  coordinator-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  bitsage-network:
+    driver: bridge
