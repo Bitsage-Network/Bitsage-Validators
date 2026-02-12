@@ -1,10 +1,8 @@
 node_modules
-crates
-rust-node
-contracts
-deploy
-LOGS
+/crates
+/rust-node
+/contracts
+/deploy
+/LOGS
 .next
-target
-packages/cli/node_modules
-apps/*/node_modules
+/target
