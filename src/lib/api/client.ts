@@ -82,7 +82,12 @@ apiClient.interceptors.response.use(
       });
     }
 
-    console.error(`[API] Error ${status}: ${message}`);
+    // Downgrade 404 to warn — expected when coordinator is not running
+    if (status === 404) {
+      console.warn(`[API] 404: ${error.config?.url}`);
+    } else {
+      console.error(`[API] Error ${status}: ${message}`);
+    }
 
     // Handle specific error codes
     if (status === 401) {
@@ -1131,15 +1136,16 @@ export const getJobsChartData = async (): Promise<Array<{ day: string; jobs: num
 
     return chartData;
   } catch {
-    // Fallback to mock data if API unavailable
+    // Return empty chart data when API unavailable — no fake data in production
+    console.warn('[API] Job chart data unavailable — coordinator may be offline');
     return [
-      { day: "Mon", jobs: 18, earnings: 15.5 },
-      { day: "Tue", jobs: 24, earnings: 22.3 },
-      { day: "Wed", jobs: 12, earnings: 10.8 },
-      { day: "Thu", jobs: 32, earnings: 28.5 },
-      { day: "Fri", jobs: 28, earnings: 25.2 },
-      { day: "Sat", jobs: 22, earnings: 19.8 },
-      { day: "Sun", jobs: 15, earnings: 13.2 },
+      { day: "Mon", jobs: 0, earnings: 0 },
+      { day: "Tue", jobs: 0, earnings: 0 },
+      { day: "Wed", jobs: 0, earnings: 0 },
+      { day: "Thu", jobs: 0, earnings: 0 },
+      { day: "Fri", jobs: 0, earnings: 0 },
+      { day: "Sat", jobs: 0, earnings: 0 },
+      { day: "Sun", jobs: 0, earnings: 0 },
     ];
   }
 };
@@ -1225,12 +1231,12 @@ export const getSagePrice = async (): Promise<TokenPrice> => {
     const response = await getTokenPrice('SAGE');
     return response.data;
   } catch (error) {
-    // Return fallback price if API unavailable
-    console.warn('[PriceFeed] Failed to fetch SAGE price, using fallback');
+    // Return fallback price if API unavailable — uses on-chain price hooks as primary source
+    console.warn('[PriceFeed] API price feed unavailable, returning zero — on-chain hooks are primary source');
     return {
       token: 'SAGE',
       symbol: 'SAGE',
-      price_usd: 4.55,
+      price_usd: 0,
       price_change_24h: 0,
       price_change_pct_24h: 0,
       volume_24h: 0,

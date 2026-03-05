@@ -204,10 +204,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [state, dispatch] = useReducer(notificationReducer, initialState);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Create audio element for notification sounds
+  // Create audio element for notification sounds (graceful fallback if file missing)
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/notification.mp3");
-    audioRef.current.volume = 0.3;
+    const audio = new Audio("/sounds/notification.mp3");
+    audio.volume = 0.3;
+    // Only assign ref if the audio can load successfully
+    audio.addEventListener("canplaythrough", () => {
+      audioRef.current = audio;
+    }, { once: true });
+    audio.addEventListener("error", () => {
+      audioRef.current = null;
+    }, { once: true });
   }, []);
 
   const playSound = useCallback(() => {

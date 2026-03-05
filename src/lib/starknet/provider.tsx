@@ -95,11 +95,11 @@ function devnetProvider() {
   });
 }
 
-// Use Alchemy RPC for Sepolia - CORS-friendly endpoint
+// Use local /api/rpc proxy to avoid CORS issues with browser-side RPC calls
 function sepoliaProvider() {
   return jsonRpcProvider({
     rpc: () => ({
-      nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo",
+      nodeUrl: "/api/rpc",
     }),
   });
 }
