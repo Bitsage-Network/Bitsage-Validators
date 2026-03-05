@@ -186,7 +186,9 @@ pub enum DeploymentStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentProgress {
     pub phase: DeploymentStatus,
-    pub progress_pct: u8,
+    /// Progress percentage (0-100). Serialized as "percent" to match frontend API contract.
+    #[serde(alias = "progress_pct")]
+    pub percent: u8,
     pub message: String,
     pub bytes_downloaded: Option<u64>,
     pub bytes_total: Option<u64>,

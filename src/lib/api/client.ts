@@ -1970,8 +1970,9 @@ export interface WorkloadDeployment {
   owner_address: string;
   status: DeploymentStatus;
   progress: DeploymentProgress | null;
-  created_at: number;
-  ready_at: number | null;
+  created_at: string;  // ISO 8601 from backend (chrono::DateTime<Utc>)
+  updated_at: string;
+  ready_at: string | null;
   error: string | null;
 }
 

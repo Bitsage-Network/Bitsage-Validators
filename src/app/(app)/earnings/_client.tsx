@@ -38,6 +38,7 @@ import { PRIVACY_DENOMINATIONS, type PrivacyDenomination } from "@/lib/crypto";
 import { usePrivacyKeys } from "@/lib/hooks/usePrivacyKeys";
 import { useDataSource } from "@/lib/hooks/useDataSource";
 import { DataSourceIndicator, DataSourceBanner } from "@/components/common/DataSourceIndicator";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 
 // Format bigint SAGE amounts (18 decimals)
 function formatSage(amount: bigint | undefined | null): string {
@@ -327,8 +328,32 @@ export default function EarningsPage() {
   const handleClaimAll = async () => {
     if (!pendingRewards || pendingRewards === 0n) return;
     try {
+      // Claim to public wallet first
       await claimRewards();
       refetchRewards();
+
+      // If claiming privately, auto-wrap to privacy pool after claim
+      if (claimPrivately && pendingRewards > 0n) {
+        try {
+          // Find best matching denomination for the claimed amount
+          const claimedSage = Number(pendingRewards) / 1e18;
+          const denominations = availableDenominations || [];
+          const matchingDenom = denominations
+            .filter((d: { value: number }) => d.value <= claimedSage)
+            .sort((a: { value: number }, b: { value: number }) => b.value - a.value)[0];
+
+          if (matchingDenom && privacyDeposit) {
+            if (!isKeysDerived && derivePrivacyKeys) {
+              await derivePrivacyKeys();
+            }
+            await privacyDeposit(matchingDenom.value.toString());
+            refetchRewards();
+          }
+        } catch (wrapErr) {
+          console.warn("Claim succeeded but auto-wrap to privacy pool failed:", wrapErr);
+          setPrivacyError("Rewards claimed to public wallet. Auto-wrap failed — wrap manually.");
+        }
+      }
     } catch (err) {
       console.error("Claim failed:", err);
     }
@@ -669,7 +694,7 @@ export default function EarningsPage() {
                     <td className="p-4 text-right">
                       {entry.tx_hash ? (
                         <a
-                          href={`https://sepolia.starkscan.co/tx/${entry.tx_hash}`}
+                          href={`${getExplorerUrl('tx')}/${entry.tx_hash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-brand-400 hover:underline text-sm flex items-center gap-1 justify-end"

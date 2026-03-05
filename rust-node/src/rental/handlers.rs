@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -196,13 +196,24 @@ pub struct UserRentalsQuery {
     wallet: String,
 }
 
-/// Extend a rental
+/// Extend a rental (owner-only)
 #[axum::debug_handler]
 pub async fn extend_rental(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
     Json(request): Json<ExtendRentalRequest>,
 ) -> Result<Json<RentalSession>, (StatusCode, String)> {
+    // Verify ownership before allowing extend
+    let rental = state.rentals.get_rental(rental_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+    let requester = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if requester.is_empty() || requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
+
     // Validate input
     validation::validate_extend_rental(request.additional_hours as u64)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -218,12 +229,23 @@ pub async fn extend_rental(
     Ok(Json(session))
 }
 
-/// Stop a rental
+/// Stop a rental (owner-only)
 #[axum::debug_handler]
 pub async fn stop_rental(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<RentalSession>, (StatusCode, String)> {
+    // Verify ownership before allowing stop
+    let rental = state.rentals.get_rental(rental_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+    let requester = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if requester.is_empty() || requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
+
     info!(rental_id = %rental_id, "Stopping rental");
 
     let session = state.rentals.sessions.stop_rental(
@@ -245,14 +267,23 @@ pub async fn stop_rental(
     Ok(Json(session))
 }
 
-/// Get SSH credentials for a rental
+/// Get SSH credentials for a rental (owner-only)
 #[axum::debug_handler]
 pub async fn get_ssh_credentials(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<SshCredentialsResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify the requester is the tenant who owns this rental
+    let requester = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if requester.is_empty() || requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     if !rental.status.is_active() {
         return Err((StatusCode::BAD_REQUEST, "Rental is not active".to_string()));
@@ -288,14 +319,23 @@ pub struct SshCredentialsResponse {
     connection_string: String,
 }
 
-/// Get Jupyter access for a rental
+/// Get Jupyter access for a rental (owner-only)
 #[axum::debug_handler]
 pub async fn get_jupyter_access(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<JupyterAccessResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify the requester is the tenant who owns this rental
+    let requester = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if requester.is_empty() || requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     if !rental.status.is_active() {
         return Err((StatusCode::BAD_REQUEST, "Rental is not active".to_string()));
@@ -434,15 +474,24 @@ pub struct WithdrawResponse {
 // Container Management API (internal/admin)
 // ============================================================================
 
-/// Get container logs
+/// Get container logs (owner-only — logs may contain secrets)
 #[axum::debug_handler]
 pub async fn get_container_logs(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
     Query(params): Query<LogsQuery>,
 ) -> Result<Json<LogsResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify the requester is the tenant who owns this rental
+    let requester = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if requester.is_empty() || requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     let container_id = rental.container_id
         .ok_or_else(|| (StatusCode::NOT_FOUND, "No container for this rental".to_string()))?;

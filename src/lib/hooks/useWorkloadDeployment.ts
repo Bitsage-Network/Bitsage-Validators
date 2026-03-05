@@ -50,6 +50,7 @@ interface UseWorkloadDeploymentReturn {
 }
 
 const POLLING_INTERVAL = 2000; // 2 seconds
+const MAX_POLLING_DURATION = 10 * 60 * 1000; // 10 minutes — stop polling if deployment hangs
 
 export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
   const { address } = useAccount();
@@ -70,6 +71,7 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
 
   // Polling ref
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingStartRef = useRef<number>(0);
 
   // Fetch workers
   const refreshWorkers = useCallback(async () => {
@@ -114,6 +116,18 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
   // Poll deployment status
   const pollDeploymentStatus = useCallback(async (deploymentId: string) => {
     try {
+      // Check polling timeout — don't poll forever if deployment is stuck
+      if (pollingStartRef.current && Date.now() - pollingStartRef.current > MAX_POLLING_DURATION) {
+        console.warn('[useWorkloadDeployment] Polling timeout reached, stopping');
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setActiveDeploymentId(null);
+        setDeploymentError('Deployment timed out — check worker status');
+        return;
+      }
+
       const response = await getDeploymentStatus(deploymentId);
       const deployment = response.data;
 
@@ -147,6 +161,7 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
     }
 
     setActiveDeploymentId(deploymentId);
+    pollingStartRef.current = Date.now();
 
     // Initial poll
     pollDeploymentStatus(deploymentId);
@@ -179,7 +194,7 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
 
       const deployResponse = response.data;
 
-      // Add to deployments list
+      // Add to deployments list (optimistic — will be replaced by server data on first poll)
       const newDeployment: WorkloadDeployment = {
         id: deployResponse.deployment_id,
         workload_id: workloadId,
@@ -187,7 +202,8 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
         owner_address: address,
         status: deployResponse.status,
         progress: null,
-        created_at: Date.now(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         ready_at: null,
         error: null,
       };
@@ -221,9 +237,13 @@ export function useWorkloadDeployment(): UseWorkloadDeploymentReturn {
     }
 
     try {
-      await stopWorkload(targetId);
+      const response = await stopWorkload(targetId);
+      if (!response.data.stopped) {
+        setDeploymentError('Failed to stop workload — worker may be unresponsive');
+        return false;
+      }
 
-      // Update deployment status locally
+      // Update deployment status locally only after confirmed stop
       setAllDeployments((prev) =>
         prev.map((d) =>
           d.id === targetId ? { ...d, status: 'stopped' as DeploymentStatus } : d

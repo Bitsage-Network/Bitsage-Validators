@@ -179,9 +179,25 @@ impl GpuManager {
             let parts: Vec<&str> = line.split(", ").collect();
             if parts.len() >= 4 {
                 let uuid = parts[0].trim().to_string();
-                let index: u32 = parts[1].trim().parse().unwrap_or(0);
+                let index: u32 = match parts[1].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!(line = %line, "Skipping GPU — failed to parse index");
+                        continue;
+                    }
+                };
                 let model = parts[2].trim().to_string();
-                let vram_mb: u32 = parts[3].trim().parse().unwrap_or(0);
+                let vram_mb: u32 = match parts[3].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!(uuid = %uuid, model = %model, "Skipping GPU — failed to parse VRAM");
+                        continue;
+                    }
+                };
+                if vram_mb == 0 {
+                    warn!(uuid = %uuid, model = %model, "Skipping GPU — reported 0 MB VRAM");
+                    continue;
+                }
                 let vram_gb = vram_mb / 1024;
 
                 // Detect GPU family
