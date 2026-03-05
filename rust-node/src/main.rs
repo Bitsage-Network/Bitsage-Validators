@@ -450,6 +450,69 @@ fn spawn_background_tasks(
         }
     });
 
+    // Task: Auto-settle validator earnings on-chain (every 5 minutes)
+    let settlement_state = state.clone();
+    tokio::spawn(async move {
+        let interval = Duration::from_secs(300); // 5 minutes
+        let min_settlement_sage: u64 = 50; // Minimum 50 SAGE to trigger settlement
+
+        loop {
+            tokio::time::sleep(interval).await;
+
+            // Only attempt if on-chain escrow is configured
+            if !settlement_state.rentals.billing.is_on_chain_enabled() {
+                continue;
+            }
+
+            let settleable = settlement_state.rentals.billing
+                .get_settleable_validators(min_settlement_sage).await;
+
+            if settleable.is_empty() {
+                continue;
+            }
+
+            info!(
+                count = settleable.len(),
+                "Auto-settlement: found validators with pending earnings"
+            );
+
+            for (wallet, amount) in &settleable {
+                // Log the settlement opportunity (actual on-chain tx requires coordinator key)
+                if let Some(escrow) = settlement_state.rentals.billing.escrow_client() {
+                    match escrow.submit_earnings_settlement(wallet, *amount).await {
+                        Ok(tx_hash) => {
+                            settlement_state.rentals.billing
+                                .mark_earnings_settled(wallet, *amount).await;
+
+                            // Persist settlement to DB
+                            if let Some(db) = settlement_state.db.as_ref() {
+                                let repo = db.validator_earnings();
+                                if let Err(e) = repo.add_earnings(wallet, -(*amount as i64)).await {
+                                    error!(validator = %wallet, error = %e, "Failed to update DB after settlement");
+                                }
+                            }
+
+                            info!(
+                                validator = %wallet,
+                                amount = amount,
+                                tx_hash = %tx_hash,
+                                "Auto-settled validator earnings on-chain"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                validator = %wallet,
+                                amount = amount,
+                                error = %e,
+                                "Failed to auto-settle earnings (will retry next cycle)"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     // Task: Handle rental suspensions (insufficient funds, billing failures)
     if let Some(mut rx) = suspension_rx {
         let suspension_state = state.clone();

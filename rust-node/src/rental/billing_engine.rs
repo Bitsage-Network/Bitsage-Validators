@@ -734,9 +734,59 @@ impl BillingEngine {
         ))
     }
 
+    /// Credit SAGE earnings to a validator for completing a proof job
+    pub async fn credit_proof_earnings(&self, validator_wallet: &str, amount: u64, job_id: Uuid) {
+        let mut earnings = self.earnings.write().await;
+        let validator = earnings.entry(validator_wallet.to_string()).or_insert_with(|| {
+            ValidatorEarnings {
+                wallet: validator_wallet.to_string(),
+                total_earned: 0,
+                total_withdrawn: 0,
+                available: 0,
+                active_rentals: 0,
+                last_earned_at: None,
+            }
+        });
+        validator.total_earned += amount;
+        validator.available += amount;
+        validator.last_earned_at = Some(Utc::now());
+
+        info!(
+            validator = %validator_wallet,
+            amount = amount,
+            job_id = %job_id,
+            total_earned = validator.total_earned,
+            "Credited proof reward to validator"
+        );
+    }
+
     /// Force sync earnings from on-chain and update local state
     pub async fn refresh_validator_earnings(&self, wallet: &str) -> Result<ValidatorEarnings, BillingError> {
         self.sync_earnings(wallet).await
+    }
+
+    /// Get validators with available earnings above a threshold (for auto-settlement)
+    pub async fn get_settleable_validators(&self, min_amount: u64) -> Vec<(String, u64)> {
+        let earnings = self.earnings.read().await;
+        earnings.iter()
+            .filter(|(_, v)| v.available >= min_amount)
+            .map(|(wallet, v)| (wallet.clone(), v.available))
+            .collect()
+    }
+
+    /// Mark earnings as settled (deduct from available after on-chain settlement)
+    pub async fn mark_earnings_settled(&self, wallet: &str, amount: u64) {
+        let mut earnings = self.earnings.write().await;
+        if let Some(validator) = earnings.get_mut(wallet) {
+            validator.available = validator.available.saturating_sub(amount);
+            validator.total_withdrawn += amount;
+            info!(
+                validator = %wallet,
+                amount = amount,
+                remaining = validator.available,
+                "Marked earnings as settled"
+            );
+        }
     }
 
     /// Get billing records for a rental

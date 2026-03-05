@@ -550,6 +550,59 @@ impl EscrowClient {
         Ok(tx_hash)
     }
 
+    /// Submit earnings settlement for a validator on-chain
+    ///
+    /// Calls the escrow contract to credit the validator's pending earnings.
+    /// This makes earnings withdrawable by the validator.
+    pub async fn submit_earnings_settlement(
+        &self,
+        validator_wallet: &str,
+        amount: u64,
+    ) -> Result<String, EscrowClientError> {
+        let account = self.account.as_ref()
+            .ok_or(EscrowClientError::NoAccount)?;
+
+        if self.config.contract_address == FieldElement::ZERO {
+            return Err(EscrowClientError::Configuration(
+                "Escrow contract address is zero — cannot settle".to_string()
+            ));
+        }
+
+        let validator_felt = Self::address_to_felt(validator_wallet)?;
+
+        // Call credit_earnings(validator, amount_low, amount_high) on escrow contract
+        let selector = Self::get_selector_static("credit_earnings")
+            .map_err(|e| EscrowClientError::Configuration(e))?;
+
+        let call = Call {
+            to: self.config.contract_address,
+            selector,
+            calldata: vec![
+                validator_felt,
+                Felt::from(amount),       // u256 low
+                FieldElement::ZERO,        // u256 high
+            ],
+        };
+
+        let result = account.execute(vec![call])
+            .send()
+            .await
+            .map_err(|e| EscrowClientError::TransactionFailed(format!(
+                "Settlement failed for {}: {}", validator_wallet, e
+            )))?;
+
+        let tx_hash = format!("0x{:x}", result.transaction_hash);
+
+        info!(
+            validator = %validator_wallet,
+            amount = amount,
+            tx_hash = %tx_hash,
+            "Earnings settlement submitted on-chain"
+        );
+
+        Ok(tx_hash)
+    }
+
     /// Compute a selector from a function name (static version)
     fn get_selector_static(name: &str) -> Result<Felt, String> {
         use starknet::core::utils::get_selector_from_name;
