@@ -47,7 +47,7 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('[API] Request error:', error);
+    debugLog('[API] Request config error:', error?.message);
     return Promise.reject(error);
   }
 );

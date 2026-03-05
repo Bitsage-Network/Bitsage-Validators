@@ -238,22 +238,31 @@ export const NETWORK_CONFIG = {
   sepolia: {
     chainId: "0x534e5f5345504f4c4941", // SN_SEPOLIA
     name: "Starknet Sepolia",
-    rpcUrl: "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo", // Lava RPC (supports v0.8.1)
+    rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo",
     explorerUrl: "https://sepolia.starkscan.co",
   },
   mainnet: {
     chainId: "0x534e5f4d41494e", // SN_MAIN
     name: "Starknet Mainnet",
-    rpcUrl: "https://starknet-mainnet.public.blastapi.io",
+    rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_7/demo",
     explorerUrl: "https://starkscan.co",
   },
 };
+
+// Current network from env
+export const CURRENT_NETWORK = (process.env.NEXT_PUBLIC_STARKNET_NETWORK || "sepolia") as keyof typeof NETWORK_CONFIG;
+
+// Get explorer URL for current network
+export function getExplorerUrl(path?: string): string {
+  const base = NETWORK_CONFIG[CURRENT_NETWORK]?.explorerUrl || NETWORK_CONFIG.sepolia.explorerUrl;
+  return path ? `${base}/${path}` : base;
+}
 
 // External links
 export const EXTERNAL_LINKS = {
   starkgate: "https://starkgate.starknet.io",
   avnu: "https://app.avnu.fi",
-  starkscan: "https://sepolia.starkscan.co",
+  starkscan: NETWORK_CONFIG[CURRENT_NETWORK]?.explorerUrl || NETWORK_CONFIG.sepolia.explorerUrl,
   docs: "https://docs.bitsage.network",
   discord: "https://discord.gg/bitsage",
   twitter: "https://twitter.com/bitsage",

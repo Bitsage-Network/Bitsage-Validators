@@ -174,7 +174,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
   // Provider for read calls
   const provider = useMemo(
     () => new RpcProvider({
-      nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://rpc.starknet-testnet.lava.build",
+      nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo",
     }),
     []
   );
