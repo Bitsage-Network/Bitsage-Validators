@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use rand::Rng;
@@ -530,11 +530,21 @@ pub async fn get_network_stats(
 // ============================================================================
 
 /// POST /api/v1/workers/gpu/register
-/// GPU workers call this to register with the coordinator
+/// GPU workers call this to register with the coordinator (requires API key in production)
 pub async fn register_gpu_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<GpuWorkerRegistration>,
 ) -> Json<ApiResponse<WorkerRegistrationResponse>> {
+    // Security: require worker API key in production to prevent fake worker registration
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for registration in production");
+        }
+    }
+
     tracing::info!(
         worker_id = %request.worker_id,
         gpu_backend = ?request.gpu_backend,
@@ -581,11 +591,20 @@ pub struct GpuWorkerRegistration {
 }
 
 /// POST /api/v1/workers/tee/register
-/// TEE workers call this to register with the coordinator
+/// TEE workers call this to register with the coordinator (requires API key in production)
 pub async fn register_tee_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<TeeWorkerRegistration>,
 ) -> Json<ApiResponse<WorkerRegistrationResponse>> {
+    // Security: require worker API key in production
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for registration in production");
+        }
+    }
     tracing::info!(
         worker_id = %request.worker_id,
         tee_type = ?request.tee_type,
@@ -640,8 +659,18 @@ pub struct WorkerRegistrationResponse {
 /// Workers call this to send heartbeat and update their status
 pub async fn worker_heartbeat(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<WorkerHeartbeat>,
 ) -> Json<ApiResponse<HeartbeatResponse>> {
+    // Security: require worker API key in production to prevent heartbeat spoofing
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for heartbeat in production");
+        }
+    }
+
     tracing::debug!(
         worker_id = %request.worker_id,
         current_load = %request.current_load,
@@ -703,9 +732,19 @@ pub struct PendingJobInfo {
 /// Workers call this to submit proof results
 pub async fn submit_job_result(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(job_id): Path<Uuid>,
     Json(request): Json<JobResultSubmission>,
 ) -> Json<ApiResponse<JobResultResponse>> {
+    // Security: require worker API key in production — this endpoint credits SAGE earnings
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for job result submission in production");
+        }
+    }
+
     tracing::info!(
         job_id = %job_id,
         worker_id = %request.worker_id,
@@ -805,8 +844,18 @@ pub struct JobResultResponse {
 /// Workers call this when shutting down
 pub async fn deregister_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<WorkerDeregistration>,
 ) -> Json<ApiResponse<DeregistrationResponse>> {
+    // Security: require worker API key in production
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for deregistration in production");
+        }
+    }
+
     tracing::info!(
         worker_id = %request.worker_id,
         "Worker deregistering"

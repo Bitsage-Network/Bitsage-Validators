@@ -125,12 +125,25 @@ impl AuthState {
         Ok(token_data.claims)
     }
 
-    /// Validate worker API key
+    /// Validate worker API key (constant-time comparison to prevent timing attacks)
     pub fn validate_worker_api_key(&self, key: &str) -> bool {
-        self.worker_api_key
-            .as_ref()
-            .map(|k| k == key)
-            .unwrap_or(true) // Allow if no key is configured (dev mode)
+        match self.worker_api_key.as_ref() {
+            Some(k) => {
+                use ring::constant_time::verify_slices_are_equal;
+                verify_slices_are_equal(k.as_bytes(), key.as_bytes()).is_ok()
+            }
+            None => {
+                let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
+                    || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+                if is_production {
+                    tracing::error!("WORKER_API_KEY not configured — rejecting request in production");
+                    false
+                } else {
+                    tracing::warn!("WORKER_API_KEY not configured — allowing in dev mode");
+                    true
+                }
+            }
+        }
     }
 }
 

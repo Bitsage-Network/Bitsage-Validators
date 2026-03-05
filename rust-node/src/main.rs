@@ -275,8 +275,15 @@ fn build_router(
         api_routes
     };
 
+    // Apply rate limiting to sensitive endpoints
+    let rate_limited_app = if std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok() {
+        app.layer(axum_mw::from_fn_with_state(rate_limiter, middleware::rate_limit::rate_limit_middleware))
+    } else {
+        app
+    };
+
     // Apply layers in reverse order (outermost first)
-    app
+    rate_limited_app
         .layer({
             let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
             if is_production {

@@ -120,8 +120,11 @@ impl AccessProvisioner {
 
     /// Generate an SSH key pair
     async fn generate_ssh_keypair(&self) -> Result<SshCredentials, AccessError> {
-        // Generate Ed25519 key pair using ssh-keygen
-        let temp_key = format!("/tmp/rental_key_{}", Uuid::new_v4());
+        // Generate Ed25519 key pair using ssh-keygen in a secure temp directory
+        let temp_dir = std::env::temp_dir().join(format!("bitsage_ssh_{}", Uuid::new_v4()));
+        tokio::fs::create_dir_all(&temp_dir).await
+            .map_err(|e| AccessError::KeyGenerationFailed(format!("Failed to create temp dir: {}", e)))?;
+        let temp_key = temp_dir.join("key").to_string_lossy().to_string();
 
         let output = tokio::process::Command::new("ssh-keygen")
             .args([
@@ -149,9 +152,10 @@ impl AccessProvisioner {
         // Get fingerprint
         let fingerprint = self.compute_key_fingerprint(&public_key)?;
 
-        // Clean up temp files
+        // Clean up temp files and directory
         tokio::fs::remove_file(&temp_key).await.ok();
         tokio::fs::remove_file(format!("{}.pub", temp_key)).await.ok();
+        tokio::fs::remove_dir_all(&temp_dir).await.ok();
 
         Ok(SshCredentials {
             private_key,
@@ -361,6 +365,21 @@ impl AccessProvisioner {
 
     /// Configure Jupyter in the container
     async fn configure_jupyter(&self, container_id: &str, token: &str) -> Result<(), AccessError> {
+        // Validate token is alphanumeric before interpolation into config
+        if !token.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(AccessError::JupyterConfigFailed(
+                "Jupyter token must be alphanumeric".to_string()
+            ));
+        }
+
+        // Determine allow_origin based on environment
+        let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        let allow_origin = if is_production {
+            "https://bitsage.network"
+        } else {
+            "*"
+        };
+
         // Write Jupyter config
         let config = format!(
             r#"
@@ -369,9 +388,10 @@ c.ServerApp.ip = '0.0.0.0'
 c.ServerApp.port = 8888
 c.ServerApp.open_browser = False
 c.ServerApp.allow_root = True
-c.ServerApp.allow_origin = '*'
+c.ServerApp.allow_origin = '{}'
+c.ServerApp.disable_check_xsrf = False
 "#,
-            token
+            token, allow_origin
         );
 
         // Create config directory and write config

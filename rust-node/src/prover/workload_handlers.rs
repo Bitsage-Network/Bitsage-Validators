@@ -280,13 +280,15 @@ pub async fn deploy_workload(
     headers: HeaderMap,
     Json(request): Json<WorkloadDeployRequest>,
 ) -> Json<ApiResponse<WorkloadDeployResponse>> {
-    // Security: verify X-Wallet-Address header matches request body owner_address
-    let header_wallet = headers
-        .get("X-Wallet-Address")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    // Security: require and verify X-Wallet-Address header matches request body owner_address
+    let header_wallet = match headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()) {
+        Some(w) if !w.is_empty() => w,
+        _ => {
+            return ApiResponse::err("X-Wallet-Address header is required for deploy requests");
+        }
+    };
 
-    if !header_wallet.is_empty() && header_wallet != request.owner_address {
+    if header_wallet != request.owner_address {
         tracing::warn!(
             header_wallet = %header_wallet,
             request_owner = %request.owner_address,
@@ -428,13 +430,24 @@ pub async fn deploy_workload(
 }
 
 /// GET /api/v1/workloads/deployments/:deployment_id
-/// Get deployment status
+/// Get deployment status (owner-scoped in production)
 pub async fn get_deployment_status(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(deployment_id): Path<Uuid>,
 ) -> Json<ApiResponse<WorkloadDeployment>> {
     match state.deployments.get(&deployment_id).await {
-        Some(deployment) => ApiResponse::ok(deployment),
+        Some(deployment) => {
+            // In production, verify the requester owns the deployment
+            let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+            if is_production {
+                let requester = headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()).unwrap_or("");
+                if requester.is_empty() || requester != deployment.owner_address {
+                    return ApiResponse::err("Deployment not found");
+                }
+            }
+            ApiResponse::ok(deployment)
+        }
         None => ApiResponse::err("Deployment not found"),
     }
 }
@@ -452,13 +465,15 @@ pub async fn stop_workload(
         None => return ApiResponse::err("Deployment not found"),
     };
 
-    // Security: verify the requester owns this deployment
-    let requester = headers
-        .get("X-Wallet-Address")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    // Security: require the requester to own this deployment
+    let requester = match headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()) {
+        Some(w) if !w.is_empty() => w,
+        _ => {
+            return ApiResponse::err("X-Wallet-Address header is required to stop a deployment");
+        }
+    };
 
-    if !requester.is_empty() && requester != deployment.owner_address {
+    if requester != deployment.owner_address {
         tracing::warn!(
             deployment_id = %deployment_id,
             requester = %requester,
@@ -521,11 +536,20 @@ pub async fn stop_workload(
 }
 
 /// POST /api/v1/workloads/status
-/// Worker reports workload status (called internally from WebSocket handler)
+/// Worker reports workload status (requires worker API key in production)
 pub async fn update_workload_status(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(update): Json<WorkloadStatusUpdate>,
 ) -> Json<ApiResponse<()>> {
+    // Security: require worker API key in production — this endpoint controls deployment state
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for status updates in production");
+        }
+    }
     state.deployments.update_status(
         &update.deployment_id,
         update.status,
