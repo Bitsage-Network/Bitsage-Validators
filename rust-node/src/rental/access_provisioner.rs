@@ -189,9 +189,28 @@ impl AccessProvisioner {
         }
 
         // Append public key to authorized_keys
+        // SECURITY: Validate SSH key format before injection to prevent command injection.
+        // Only allow standard SSH public key formats (ssh-rsa, ssh-ed25519, ecdsa-sha2-*).
+        let trimmed_key = public_key.trim();
+        if !trimmed_key.starts_with("ssh-rsa ")
+            && !trimmed_key.starts_with("ssh-ed25519 ")
+            && !trimmed_key.starts_with("ecdsa-sha2-")
+            && !trimmed_key.starts_with("sk-ssh-ed25519@")
+            && !trimmed_key.starts_with("sk-ecdsa-sha2-")
+        {
+            return Err(AccessError::KeyInjectionFailed(
+                "Invalid SSH public key format — must start with ssh-rsa, ssh-ed25519, or ecdsa-sha2-*".to_string()
+            ));
+        }
+        if trimmed_key.contains('\'') || trimmed_key.contains('\\') || trimmed_key.contains('\n') || trimmed_key.contains(';') || trimmed_key.contains('`') || trimmed_key.contains('$') {
+            return Err(AccessError::KeyInjectionFailed(
+                "SSH public key contains forbidden characters".to_string()
+            ));
+        }
+
         let add_key_cmd = format!(
             "echo '{}' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys",
-            public_key.trim()
+            trimmed_key
         );
 
         let output = tokio::process::Command::new("docker")
@@ -252,14 +271,15 @@ impl AccessProvisioner {
         // Wait a moment for daemon to start
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-        // Authenticate with Tailscale
-        let up_cmd = format!(
-            "tailscale up --authkey={} --hostname={} --ssh",
-            auth_key, machine_name
-        );
-
+        // Authenticate with Tailscale (use separate args to avoid shell injection)
         let output = tokio::process::Command::new("docker")
-            .args(["exec", container_id, "sh", "-c", &up_cmd])
+            .args([
+                "exec", container_id,
+                "tailscale", "up",
+                &format!("--authkey={}", auth_key),
+                &format!("--hostname={}", machine_name),
+                "--ssh",
+            ])
             .output()
             .await
             .map_err(|e| AccessError::TailscaleError(e.to_string()))?;
@@ -416,6 +436,13 @@ c.ServerApp.allow_origin = '*'
         let expires_at = Utc::now() + Duration::hours(24);
 
         // Update token in container
+        // SECURITY: Validate token is alphanumeric to prevent sed injection
+        if !new_token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err(AccessError::JupyterConfigFailed(
+                "Generated token contains invalid characters".to_string()
+            ));
+        }
+
         let update_cmd = format!(
             "sed -i \"s/c.ServerApp.token = .*/c.ServerApp.token = '{}'/\" /root/.jupyter/jupyter_server_config.py",
             new_token

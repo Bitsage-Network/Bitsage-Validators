@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
-    response::Response,
+    response::{IntoResponse, Response},
+    http::StatusCode,
 };
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
@@ -535,11 +536,35 @@ pub struct WorkerCapabilities {
     pub owner_address: Option<String>,
 }
 
-/// WebSocket handler for workers
+/// Query parameters for WebSocket authentication
+#[derive(Debug, Deserialize)]
+pub struct WsAuthParams {
+    /// API key for worker authentication
+    pub api_key: Option<String>,
+}
+
+/// WebSocket handler for workers (requires API key in production)
 pub async fn worker_websocket_handler(
     ws: WebSocketUpgrade,
+    Query(params): Query<WsAuthParams>,
     State(state): State<Arc<crate::AppState>>,
 ) -> Response {
+    // Validate worker API key
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = match &params.api_key {
+            Some(k) => k.as_str(),
+            None => {
+                tracing::warn!("Worker WebSocket connection rejected: missing api_key");
+                return (StatusCode::UNAUTHORIZED, "Missing api_key query parameter").into_response();
+            }
+        };
+        if !state.auth.validate_worker_api_key(api_key) {
+            tracing::warn!("Worker WebSocket connection rejected: invalid api_key");
+            return (StatusCode::FORBIDDEN, "Invalid api_key").into_response();
+        }
+    }
+
     ws.on_upgrade(move |socket| handle_worker_socket(socket, state))
 }
 
@@ -696,8 +721,22 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                                 progress = %progress,
                                 "Job progress update"
                             );
+
                             // Update proof state with progress
-                            // TODO: Broadcast to client WebSocket subscribers
+                            {
+                                let mut proofs = state.proofs.write().await;
+                                if let Some(job) = proofs.get_pending_mut(&job_id) {
+                                    job.progress = Some(super::types::ProofProgress {
+                                        phase,
+                                        progress,
+                                        overall_progress: progress,
+                                        estimated_time_ms: None,
+                                        fri_round: None,
+                                        fri_foldings: None,
+                                    });
+                                    job.status = super::types::ProofJobStatus::Proving;
+                                }
+                            }
                         }
 
                         WorkerWsMessage::JobComplete {
@@ -707,19 +746,30 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                             error,
                             generation_time_ms,
                         } => {
+                            // Look up the original job to get the correct circuit type and worker info
+                            let (circuit, completed_worker_id) = {
+                                let proofs = state.proofs.read().await;
+                                if let Some(job) = proofs.get_pending(&job_id) {
+                                    (job.circuit, job.worker_id.clone())
+                                } else {
+                                    (super::types::CircuitType::GenericCompute, worker_id.clone())
+                                }
+                            };
+
                             tracing::info!(
                                 job_id = %job_id,
                                 success = %success,
                                 generation_time_ms = %generation_time_ms,
+                                circuit = ?circuit,
+                                worker = ?completed_worker_id,
                                 "Job completed"
                             );
 
                             if success {
                                 if let Some(proof) = proof {
-                                    // Store the completed proof
                                     let result = super::types::ProofResult {
                                         id: job_id,
-                                        circuit: super::types::CircuitType::GenericCompute,
+                                        circuit,
                                         proof,
                                         public_inputs: serde_json::Value::Null,
                                         mode: super::types::ProofMode::WorkerGpu,
@@ -730,6 +780,41 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
 
                                     let mut proofs = state.proofs.write().await;
                                     proofs.complete(job_id, result);
+
+                                    // Credit SAGE earnings to the worker's validator
+                                    if let Some(ref wid) = completed_worker_id {
+                                        if let Some(gpu_worker) = state.workers.get_gpu_worker(wid).await {
+                                            if let Some(ref owner) = gpu_worker.owner_address {
+                                                // Calculate reward based on circuit complexity and time
+                                                let reward_sage = calculate_proof_reward(circuit, generation_time_ms);
+                                                state.rentals.billing.credit_proof_earnings(
+                                                    owner,
+                                                    reward_sage,
+                                                    job_id,
+                                                ).await;
+
+                                                // Persist earnings to database
+                                                if let Some(db) = state.db.as_ref() {
+                                                    let repo = db.validator_earnings();
+                                                    if let Err(e) = repo.add_earnings(owner, reward_sage as i64).await {
+                                                        tracing::error!(
+                                                            validator = %owner,
+                                                            amount = reward_sage,
+                                                            error = %e,
+                                                            "Failed to persist proof earnings to DB"
+                                                        );
+                                                    }
+                                                }
+
+                                                tracing::info!(
+                                                    job_id = %job_id,
+                                                    validator = %owner,
+                                                    reward_sage = reward_sage,
+                                                    "Credited SAGE proof reward to validator"
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             } else {
                                 tracing::error!(
@@ -851,6 +936,35 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
 // ============================================================================
 // Rental Marketplace Helper Functions
 // ============================================================================
+
+/// Calculate SAGE reward for a completed proof (public alias for REST handlers)
+pub fn calculate_proof_reward_for_billing(circuit: super::types::CircuitType, generation_time_ms: u64) -> u64 {
+    calculate_proof_reward(circuit, generation_time_ms)
+}
+
+/// Calculate SAGE reward for a completed proof based on circuit type and generation time
+fn calculate_proof_reward(circuit: super::types::CircuitType, generation_time_ms: u64) -> u64 {
+    use super::types::CircuitType;
+
+    // Base reward in SAGE (smallest unit) per circuit type
+    let base_reward: u64 = match circuit {
+        CircuitType::AiInference => 10,
+        CircuitType::DataPipeline => 8,
+        CircuitType::MlTraining => 25,
+        CircuitType::GenericCompute => 5,
+        CircuitType::PrivacyWithdraw => 8,
+        CircuitType::PrivacyTransfer => 10,
+        CircuitType::ConfidentialSwap => 12,
+        CircuitType::MerkleMembership => 3,
+        CircuitType::RangeProof => 3,
+    };
+
+    // Time multiplier: longer proofs get slightly more (capped at 3x)
+    let time_secs = (generation_time_ms / 1000).max(1);
+    let time_multiplier = (time_secs as f64 / 5.0).min(3.0).max(1.0);
+
+    (base_reward as f64 * time_multiplier) as u64
+}
 
 /// Calculate default SAGE rate per hour based on VRAM
 fn calculate_default_rate(vram_gb: u32) -> u64 {

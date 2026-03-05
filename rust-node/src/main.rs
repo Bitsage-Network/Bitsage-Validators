@@ -19,7 +19,7 @@ use axum::{
 };
 use tokio::sync::RwLock;
 use tokio::signal;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{Any, AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn, error};
@@ -277,10 +277,28 @@ fn build_router(
 
     // Apply layers in reverse order (outermost first)
     app
-        .layer(CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any))
+        .layer({
+            let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+            if is_production {
+                // Production: restrict CORS to known origins
+                let origins = std::env::var("CORS_ALLOWED_ORIGINS")
+                    .unwrap_or_else(|_| "https://bitsage.network,https://obelysk.bitsage.network,https://app.bitsage.network".to_string());
+                let allowed: Vec<_> = origins.split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+                tracing::info!(origins = %origins, "CORS: restricting to configured origins");
+                CorsLayer::new()
+                    .allow_origin(AllowOrigin::list(allowed))
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            } else {
+                // Development: allow all origins
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            }
+        })
         .layer(TimeoutLayer::new(Duration::from_secs(CONFIG.server.request_timeout_secs)))
         .layer(TraceLayer::new_for_http())
 }

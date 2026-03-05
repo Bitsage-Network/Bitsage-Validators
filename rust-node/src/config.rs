@@ -197,7 +197,7 @@ fn default_deployment_timeout() -> u64 { 300 }
 fn default_heartbeat_timeout() -> u64 { 60 }
 fn default_max_deployments() -> u32 { 4 }
 fn default_docker_registry() -> String { "bitsage".to_string() }
-fn default_starknet_rpc() -> String { "https://starknet-sepolia.public.blastapi.io".to_string() }
+fn default_starknet_rpc() -> String { "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo".to_string() }
 fn default_chain_id() -> String { "sepolia".to_string() }
 fn default_true() -> bool { true }
 fn default_metrics_port() -> u16 { 9090 }
@@ -265,6 +265,10 @@ impl Config {
         if let Ok(secret) = std::env::var("AUTH_JWT_SECRET") {
             cfg.auth.jwt_secret = secret;
         } else if cfg.auth.jwt_secret.is_empty() {
+            let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+            if is_production {
+                anyhow::bail!("AUTH_JWT_SECRET must be set in production (at least 32 characters)");
+            }
             cfg.auth.jwt_secret = default_jwt_secret();
         }
 
@@ -292,13 +296,20 @@ impl Config {
             anyhow::bail!("Server port cannot be 0");
         }
 
-        // Warn about insecure settings in production
-        if std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok() {
+        // Enforce strict settings in production
+        let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        if is_production {
             if self.auth.jwt_secret.len() < 32 {
                 anyhow::bail!("JWT secret must be at least 32 characters in production");
             }
             if self.auth.worker_api_key.is_none() {
-                tracing::warn!("No worker API key set - workers will not be authenticated!");
+                anyhow::bail!("WORKER_API_KEY must be set in production");
+            }
+            if self.starknet.rpc_url.contains("sepolia") && self.starknet.chain_id == "mainnet" {
+                anyhow::bail!("Starknet RPC URL points to sepolia but chain_id is mainnet — set STARKNET_RPC_URL to a mainnet RPC");
+            }
+            if !self.database.url.contains("postgres") {
+                tracing::warn!("Production should use PostgreSQL — SQLite is not recommended for production");
             }
             if !self.server.tls_enabled {
                 tracing::warn!("TLS is not enabled - connections will not be encrypted!");
