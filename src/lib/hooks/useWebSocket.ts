@@ -212,6 +212,7 @@ const MAX_RECONNECT_DELAY = 30000; // 30 second max
 const INITIAL_CONNECTION_DELAY = 800; // Delay before first connection (allows React Strict Mode to settle)
 
 // Check if demo mode is enabled (skip WebSocket connections)
+const IS_DEV = process.env.NODE_ENV === 'development';
 const IS_DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
 // Suppress console errors for expected transient WebSocket failures
@@ -358,7 +359,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
           // Calculate exponential backoff with jitter
           const delay = calculateBackoff(reconnectCountRef.current, reconnectDelay);
-          console.log(`WebSocket reconnecting in ${delay}ms (attempt ${reconnectCountRef.current}/${reconnectAttempts})`);
+          if (IS_DEV) {
+            console.debug(`WebSocket reconnecting in ${delay}ms (attempt ${reconnectCountRef.current}/${reconnectAttempts})`);
+          }
 
           reconnectTimeoutRef.current = setTimeout(() => {
             if (mountedRef.current && !userDisconnectRef.current) {

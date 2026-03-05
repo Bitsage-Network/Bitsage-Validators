@@ -1615,8 +1615,8 @@ class WebSocketClient {
         this.tryReconnect();
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[WS] Error:', error);
+      this.ws.onerror = () => {
+        debugLog('[WS] Connection error');
       };
     } catch (error) {
       console.error('[WS] Failed to connect:', error);
@@ -1630,7 +1630,7 @@ class WebSocketClient {
       debugLog(`[WS] Reconnecting (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
       setTimeout(() => this.connect(), this.reconnectDelay);
     } else {
-      console.error('[WS] Max reconnection attempts reached');
+      debugLog('[WS] Max reconnection attempts reached');
     }
   }
 

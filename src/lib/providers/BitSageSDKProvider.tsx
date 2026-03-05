@@ -85,7 +85,8 @@ export function BitSageSDKProvider({ children }: BitSageSDKProviderProps) {
   // API and RPC URLs from environment — always provide localhost fallback
   // so the SDK doesn't default to api.sepolia.bitsage.network (which doesn't resolve)
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3030';
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || undefined;
+  // Route SDK RPC through /api/rpc proxy to avoid CORS (SDK defaults to BlastAPI which blocks browser CORS)
+  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || '/api/rpc';
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || undefined;
 
   // Create wallet config when connected

@@ -17,7 +17,7 @@ const PAIR_ID_MAP: Record<string, number> = {
   "STRK_USDC": 3,
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3030";
 
 interface MarketData {
   lastPrice: number;
