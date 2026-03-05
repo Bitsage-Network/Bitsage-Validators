@@ -9,6 +9,7 @@ import { FadeTransition } from "@/components/layout/PageTransition";
 import { EnvValidator } from "@/components/EnvValidator";
 import { WebSocketProvider } from "@/lib/providers/WebSocketProvider";
 import { ToastProvider } from "@/lib/providers/ToastProvider";
+import { NotificationProvider } from "@/lib/notifications";
 import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
 import { KeyboardShortcutsModal, FloatingHelpButton } from "@/components/help/KeyboardShortcutsModal";
 import { CommandPalette, useCommandPalette } from "@/components/ui/CommandPalette";
@@ -16,6 +17,7 @@ import { useGlobalShortcuts } from "@/lib/hooks/useKeyboardShortcuts";
 import { Loader2, FlaskConical, X, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { setApiWalletAddress } from "@/lib/api/client";
 
 // Clear wallet cookie on disconnect
 function clearWalletCookie() {
@@ -56,6 +58,12 @@ export default function AppLayout({
     return () => clearTimeout(timer);
   }, []);
 
+  // Sync wallet address to API client for X-Wallet-Address header
+  useEffect(() => {
+    setApiWalletAddress(address ?? null);
+    return () => setApiWalletAddress(null);
+  }, [address]);
+
   // Redirect when disconnected (after ready)
   useEffect(() => {
     if (ready && !isConnecting && !isReconnecting && !address && !isDemoMode) {
@@ -85,6 +93,7 @@ export default function AppLayout({
 
   const content = (
     <ToastProvider position="top-right">
+      <NotificationProvider>
           {loadingOverlay}
           <div className="min-h-screen bg-surface-dark bg-grid">
             {/* Global connection status banner */}
@@ -160,6 +169,7 @@ export default function AppLayout({
               onClose={commandPalette.close}
             />
           </div>
+      </NotificationProvider>
     </ToastProvider>
   );
 

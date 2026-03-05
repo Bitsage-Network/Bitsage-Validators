@@ -32,7 +32,17 @@ export type NetworkType = "devnet" | "sepolia" | "mainnet";
 
 // Get current network contracts (default to sepolia)
 export function getContractAddresses(network: NetworkType = "sepolia") {
-  return CONTRACTS[network];
+  const addresses = CONTRACTS[network];
+
+  // Warn if mainnet addresses are not configured
+  if (network === "mainnet" && addresses.SAGE_TOKEN === "0x0") {
+    console.error(
+      "[Contracts] Mainnet contract addresses are not configured. " +
+      "The app will not function correctly on mainnet."
+    );
+  }
+
+  return addresses;
 }
 
 // ============================================

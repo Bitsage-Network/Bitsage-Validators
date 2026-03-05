@@ -31,16 +31,19 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
+// In-memory wallet address (set via setApiWalletAddress, avoids localStorage XSS risk)
+let _walletAddress: string | null = null;
+
+/** Set the wallet address used for API authentication headers */
+export function setApiWalletAddress(address: string | null) {
+  _walletAddress = address;
+}
+
 // Request interceptor for auth and logging
 apiClient.interceptors.request.use(
   (config) => {
-    // Add wallet address to headers if available (for authenticated requests)
-    const walletAddress = typeof window !== 'undefined'
-      ? localStorage.getItem('wallet_address')
-      : null;
-
-    if (walletAddress) {
-      config.headers['X-Wallet-Address'] = walletAddress;
+    if (_walletAddress) {
+      config.headers['X-Wallet-Address'] = _walletAddress;
     }
 
     debugLog(`[API] ${config.method?.toUpperCase()} ${config.url}`);

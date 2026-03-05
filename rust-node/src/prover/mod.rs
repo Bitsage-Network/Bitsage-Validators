@@ -19,8 +19,9 @@ pub use key_cache::ProvingKeyCache;
 pub use streaming::{websocket_handler, worker_websocket_handler, WorkerChannelManager, WorkerChannelError};
 pub use types::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -28,6 +29,10 @@ use uuid::Uuid;
 pub struct WorkerPool {
     gpu_workers: RwLock<HashMap<String, GpuWorker>>,
     tee_enclaves: RwLock<HashMap<String, TeeEnclave>>,
+    /// Last heartbeat time per worker ID
+    heartbeats: RwLock<HashMap<String, Instant>>,
+    /// Pending job queue (FIFO) for pull-based assignment
+    job_queue: RwLock<VecDeque<handlers::PendingJobInfo>>,
 }
 
 impl WorkerPool {
@@ -35,13 +40,17 @@ impl WorkerPool {
         Self {
             gpu_workers: RwLock::new(HashMap::new()),
             tee_enclaves: RwLock::new(HashMap::new()),
+            heartbeats: RwLock::new(HashMap::new()),
+            job_queue: RwLock::new(VecDeque::new()),
         }
     }
 
     /// Register a GPU worker
     pub async fn register_gpu_worker(&self, worker: GpuWorker) {
+        let id = worker.id.clone();
         let mut workers = self.gpu_workers.write().await;
-        workers.insert(worker.id.clone(), worker);
+        workers.insert(id.clone(), worker);
+        self.heartbeats.write().await.insert(id, Instant::now());
     }
 
     /// Get available GPU workers
@@ -89,11 +98,27 @@ impl WorkerPool {
         }
     }
 
-    /// Get a pending job for a worker (called during heartbeat)
-    pub async fn get_pending_job_for_worker(&self, _worker_id: &str) -> Option<handlers::PendingJobInfo> {
-        // TODO: Implement job queue and assignment logic
-        // For now, return None - jobs will be pushed via WebSocket
-        None
+    /// Enqueue a job for pull-based worker assignment
+    pub async fn enqueue_job(&self, job: handlers::PendingJobInfo) {
+        let mut queue = self.job_queue.write().await;
+        tracing::info!(job_id = %job.job_id, "Job enqueued for worker assignment");
+        queue.push_back(job);
+    }
+
+    /// Get a pending job for a worker (called during heartbeat).
+    /// Pops the next job from the queue and assigns it to the requesting worker.
+    pub async fn get_pending_job_for_worker(&self, worker_id: &str) -> Option<handlers::PendingJobInfo> {
+        let mut queue = self.job_queue.write().await;
+        if let Some(job) = queue.pop_front() {
+            tracing::info!(
+                job_id = %job.job_id,
+                worker_id = %worker_id,
+                "Assigning queued job to worker"
+            );
+            Some(job)
+        } else {
+            None
+        }
     }
 
     /// Deregister a worker
@@ -114,6 +139,50 @@ impl WorkerPool {
                 tracing::info!(worker_id = %worker_id, "TEE enclave deregistered");
             }
         }
+    }
+
+    /// Update heartbeat for a worker
+    pub async fn update_heartbeat(&self, worker_id: &str) {
+        self.heartbeats.write().await.insert(worker_id.to_string(), Instant::now());
+    }
+
+    /// Mark stale workers (no heartbeat within timeout) as offline by removing them.
+    /// Returns the number of workers removed.
+    pub async fn mark_stale_workers_offline(&self, timeout_secs: u64) -> usize {
+        let now = Instant::now();
+        let threshold = std::time::Duration::from_secs(timeout_secs);
+
+        // Find stale worker IDs
+        let stale_ids: Vec<String> = {
+            let heartbeats = self.heartbeats.read().await;
+            heartbeats.iter()
+                .filter(|(_, last_seen)| now.duration_since(**last_seen) > threshold)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+
+        if stale_ids.is_empty() {
+            return 0;
+        }
+
+        // Remove stale workers
+        let mut gpu_workers = self.gpu_workers.write().await;
+        let mut tee_enclaves = self.tee_enclaves.write().await;
+        let mut heartbeats = self.heartbeats.write().await;
+
+        let mut removed = 0;
+        for id in &stale_ids {
+            if gpu_workers.remove(id).is_some() {
+                removed += 1;
+                tracing::info!(worker_id = %id, "Stale GPU worker removed (no heartbeat)");
+            }
+            if tee_enclaves.remove(id).is_some() {
+                removed += 1;
+                tracing::info!(worker_id = %id, "Stale TEE enclave removed (no heartbeat)");
+            }
+            heartbeats.remove(id);
+        }
+        removed
     }
 
     /// Get total worker count
@@ -185,6 +254,10 @@ impl ProofState {
         self.pending.get(id)
     }
 
+    pub fn get_pending_mut(&mut self, id: &Uuid) -> Option<&mut ProofJob> {
+        self.pending.get_mut(id)
+    }
+
     pub fn complete(&mut self, id: Uuid, result: ProofResult) {
         self.pending.remove(&id);
         self.completed.insert(id, result);
@@ -192,6 +265,43 @@ impl ProofState {
 
     pub fn get_completed(&self, id: &Uuid) -> Option<&ProofResult> {
         self.completed.get(id)
+    }
+
+    /// Assign a worker to a pending job
+    pub fn assign_worker(&mut self, id: &Uuid, worker_id: &str) {
+        if let Some(job) = self.pending.get_mut(id) {
+            job.worker_id = Some(worker_id.to_string());
+            job.status = ProofJobStatus::Proving;
+        }
+    }
+
+    /// Get count of completed proofs (for stats)
+    pub fn completed_count(&self) -> usize {
+        self.completed.len()
+    }
+
+    /// Get count of pending proofs (for stats)
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Expire jobs that have exceeded their deadline.
+    /// Returns the IDs and worker_ids of expired jobs so the caller can reassign or notify.
+    pub fn expire_overdue_jobs(&mut self) -> Vec<(Uuid, Option<String>)> {
+        let now = chrono::Utc::now().timestamp();
+        let expired: Vec<(Uuid, Option<String>)> = self.pending.iter()
+            .filter(|(_, job)| job.deadline > 0 && now > job.deadline && job.status == ProofJobStatus::Proving)
+            .map(|(id, job)| (*id, job.worker_id.clone()))
+            .collect();
+
+        for (id, _) in &expired {
+            if let Some(job) = self.pending.get_mut(id) {
+                job.status = ProofJobStatus::Failed;
+            }
+            self.pending.remove(id);
+        }
+
+        expired
     }
 }
 

@@ -1009,15 +1009,30 @@ impl GpuManager {
                     GpuAllocation::Exclusive { .. } => {
                         gpu.fully_allocated = false;
                     }
-                    GpuAllocation::Mig { gi_id, ci_id, .. } => {
-                        // Mark MIG instance as available
-                        for instance in &mut gpu.mig_instances {
-                            if instance.gi_id == *gi_id && instance.ci_id == *ci_id {
-                                instance.allocated = false;
-                                instance.rental_id = None;
-                                break;
-                            }
+                    GpuAllocation::Mig { gpu_index, gi_id, ci_id, profile, .. } => {
+                        // Remove the MIG instance from tracking
+                        gpu.mig_instances.retain(|i| !(i.gi_id == *gi_id && i.ci_id == *ci_id));
+                        // Restore available VRAM
+                        gpu.available_mig_vram_gb += profile.vram_gb();
+
+                        // Destroy the actual MIG allocation (CI + GI) on the hardware
+                        let gpu_idx = *gpu_index;
+                        let gi = *gi_id;
+                        let ci = *ci_id;
+                        // Drop locks before async nvidia-smi call
+                        drop(gpus);
+                        drop(allocations);
+                        if let Err(e) = self.destroy_mig_allocation(gpu_idx, gi, ci).await {
+                            error!(
+                                gpu_index = gpu_idx,
+                                gi_id = gi,
+                                ci_id = ci,
+                                error = %e,
+                                "Failed to destroy MIG allocation on hardware (resource leak)"
+                            );
                         }
+                        info!(allocation_id = %allocation_id, "GPU MIG instance released and destroyed");
+                        return Ok(());
                     }
                 }
             }

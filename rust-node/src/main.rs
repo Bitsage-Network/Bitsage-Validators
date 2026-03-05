@@ -201,6 +201,9 @@ fn build_router(
         .route("/api/v1/tee/prove", post(prover::handlers::submit_tee_proof))
         .route("/api/v1/tee/status/:request_id", get(prover::handlers::get_tee_status))
 
+        // GPU Metrics (dashboard)
+        .route("/api/v1/gpu/metrics", get(prover::handlers::get_gpu_metrics))
+
         // Worker API - Listing
         .route("/api/v1/workers/gpu", get(prover::handlers::list_gpu_workers))
         .route("/api/v1/workers/tee", get(prover::handlers::list_tee_workers))
@@ -287,10 +290,11 @@ async fn health_check(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> Json<HealthStatus> {
     let uptime = state.started_at.elapsed().as_secs();
-    let db_ok = state.db.as_ref().map(|db| {
-        // This is a sync check for simplicity
-        true
-    }).unwrap_or(true);
+    let db_ok = if let Some(db) = state.db.as_ref() {
+        db.health_check().await
+    } else {
+        false
+    };
     let workers_count = state.workers.total_workers().await;
 
     Json(HealthStatus::healthy(uptime, db_ok, workers_count))
@@ -397,8 +401,34 @@ fn spawn_background_tasks(
         loop {
             tokio::time::sleep(check_interval).await;
 
-            // In production, check last heartbeat time and mark workers offline
-            // This would query the database for stale workers
+            // Mark workers offline if no heartbeat within timeout
+            let stale_count = heartbeat_state.workers.mark_stale_workers_offline(timeout_secs).await;
+            if stale_count > 0 {
+                tracing::warn!(count = stale_count, timeout_secs = timeout_secs, "Marked stale workers offline");
+            }
+        }
+    });
+
+    // Task: Expire overdue proof jobs
+    let expiry_state = state.clone();
+    tokio::spawn(async move {
+        let check_interval = Duration::from_secs(15);
+
+        loop {
+            tokio::time::sleep(check_interval).await;
+
+            let expired = {
+                let mut proofs = expiry_state.proofs.write().await;
+                proofs.expire_overdue_jobs()
+            };
+
+            for (job_id, worker_id) in &expired {
+                tracing::warn!(
+                    job_id = %job_id,
+                    worker_id = ?worker_id,
+                    "Expired overdue proof job"
+                );
+            }
         }
     });
 
