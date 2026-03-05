@@ -87,13 +87,35 @@ impl Default for EscrowConfig {
         // Use centralized contracts config for defaults
         let contract_addrs = contracts();
 
+        let raw_addr = std::env::var("RENTAL_ESCROW_CONTRACT")
+            .unwrap_or_else(|_| contract_addrs.rental_escrow.clone());
+
+        let contract_address = match FieldElement::from_hex_be(&raw_addr) {
+            Ok(addr) if addr != FieldElement::ZERO => addr,
+            Ok(_) => {
+                tracing::error!("RENTAL_ESCROW_CONTRACT resolved to zero address — escrow will not function");
+                FieldElement::ZERO
+            }
+            Err(e) => {
+                tracing::error!(
+                    address = %raw_addr,
+                    error = %e,
+                    "Failed to parse RENTAL_ESCROW_CONTRACT — escrow will not function"
+                );
+                FieldElement::ZERO
+            }
+        };
+
+        // In production, refuse to start with zero escrow contract
+        let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        if is_production && contract_address == FieldElement::ZERO {
+            tracing::error!("FATAL: RENTAL_ESCROW_CONTRACT is zero in production — all escrow operations will fail. Set a valid contract address.");
+        }
+
         Self {
             rpc_url: std::env::var("STARKNET_RPC")
                 .unwrap_or_else(|_| "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_10/demo".to_string()),
-            contract_address: FieldElement::from_hex_be(
-                &std::env::var("RENTAL_ESCROW_CONTRACT")
-                    .unwrap_or_else(|_| contract_addrs.rental_escrow.clone())
-            ).unwrap_or(FieldElement::ZERO),
+            contract_address,
             coordinator_private_key: std::env::var("COORDINATOR_PRIVATE_KEY")
                 .ok()
                 .and_then(|s| FieldElement::from_hex_be(&s).ok()),
@@ -174,6 +196,17 @@ impl EscrowClient {
         } else {
             None
         };
+
+        if config.contract_address == FieldElement::ZERO {
+            let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
+                || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+            if is_production {
+                return Err(EscrowClientError::Configuration(
+                    "Escrow contract address is zero — cannot operate in production without a valid contract".into()
+                ));
+            }
+            tracing::warn!("Escrow contract address is zero — escrow operations will fail");
+        }
 
         info!(
             contract = %config.contract_address,
@@ -447,6 +480,80 @@ impl EscrowClient {
         );
 
         Ok(result.transaction_hash)
+    }
+
+    /// Submit proof verification to the on-chain verifier contract
+    ///
+    /// Calls the STWO verifier contract to verify a completed proof.
+    /// The verifier address and calldata are provided by the caller.
+    pub async fn submit_proof_verification(
+        &self,
+        verifier_address: &str,
+        proof: &crate::prover::ProofResult,
+        calldata: &[String],
+    ) -> Result<String, EscrowClientError> {
+        let account = self.account.as_ref()
+            .ok_or(EscrowClientError::NoAccount)?;
+
+        let verifier_felt = FieldElement::from_hex_be(verifier_address)
+            .map_err(|e| EscrowClientError::InvalidAddress(format!("Verifier address {}: {}", verifier_address, e)))?;
+
+        // Build calldata: commitment, FRI layer commitments, public inputs
+        let mut call_data = Vec::new();
+
+        // Add the proof commitment
+        let commitment_felt = FieldElement::from_hex_be(&proof.proof.commitment)
+            .unwrap_or(FieldElement::ZERO);
+        call_data.push(commitment_felt);
+
+        // Add FRI layer commitments count + data
+        call_data.push(Felt::from(proof.proof.fri.layer_commitments.len() as u64));
+        for lc in &proof.proof.fri.layer_commitments {
+            call_data.push(FieldElement::from_hex_be(lc).unwrap_or(FieldElement::ZERO));
+        }
+
+        // Add public inputs count + data
+        call_data.push(Felt::from(proof.proof.public_inputs.len() as u64));
+        for pi in &proof.proof.public_inputs {
+            call_data.push(FieldElement::from_hex_be(pi).unwrap_or(FieldElement::ZERO));
+        }
+
+        // Add any extra calldata from the request
+        for cd in calldata {
+            call_data.push(FieldElement::from_hex_be(cd).unwrap_or(FieldElement::ZERO));
+        }
+
+        // Use "verify_proof" selector
+        let verify_selector = Self::get_selector_static("verify_proof")
+            .map_err(|e| EscrowClientError::Configuration(format!("Failed to compute selector: {}", e)))?;
+
+        let call = Call {
+            to: verifier_felt,
+            selector: verify_selector,
+            calldata: call_data,
+        };
+
+        let result = account.execute(vec![call])
+            .send()
+            .await
+            .map_err(|e| EscrowClientError::TransactionFailed(e.to_string()))?;
+
+        let tx_hash = format!("0x{:x}", result.transaction_hash);
+
+        info!(
+            proof_id = %proof.id,
+            verifier = %verifier_address,
+            tx_hash = %tx_hash,
+            "Proof verification submitted on-chain"
+        );
+
+        Ok(tx_hash)
+    }
+
+    /// Compute a selector from a function name (static version)
+    fn get_selector_static(name: &str) -> Result<Felt, String> {
+        use starknet::core::utils::get_selector_from_name;
+        get_selector_from_name(name).map_err(|e| format!("Selector error for '{}': {}", name, e))
     }
 
     /// Convert a UUID to a Felt (rental_id)

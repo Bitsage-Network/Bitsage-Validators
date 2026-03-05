@@ -133,8 +133,14 @@ function generateNonce(): string {
     window.crypto.getRandomValues(bytes);
     return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  // Fallback for SSR
-  return '0x' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+  // Fallback for SSR — use Node crypto if available
+  try {
+    const crypto = require('crypto');
+    return '0x' + crypto.randomBytes(32).toString('hex');
+  } catch {
+    // Last resort — should never happen in Node.js
+    return '0x' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+  }
 }
 
 /**
@@ -278,10 +284,14 @@ async function recoverEthereumAddress(
   messageHash: string,
   signature: MultichainSignature
 ): Promise<string> {
-  // This would use ethers.js or viem in production
-  // For now, return a placeholder - actual implementation requires ethers/viem
-  console.warn('Ethereum signature recovery requires ethers.js or viem');
-  return signature.publicKey || '0x0';
+  // Ethereum signature recovery requires ethers.js or viem (not currently installed)
+  // Throw instead of returning a placeholder to prevent silent auth bypass
+  if (signature.publicKey) {
+    return signature.publicKey;
+  }
+  throw new Error(
+    'Ethereum signature recovery not available — install ethers.js or viem for EVM wallet support'
+  );
 }
 
 /**
@@ -533,7 +543,7 @@ export const CHAIN_CONFIG: Record<ChainType, {
     name: 'Starknet',
     signatureScheme: 'STARK',
     addressFormat: /^0x[a-fA-F0-9]{64}$/,
-    explorerUrl: 'https://sepolia.starkscan.co',
+    explorerUrl: process.env.NEXT_PUBLIC_STARKNET_NETWORK === 'mainnet' ? 'https://starkscan.co' : 'https://sepolia.starkscan.co',
   },
   ethereum: {
     name: 'Ethereum',

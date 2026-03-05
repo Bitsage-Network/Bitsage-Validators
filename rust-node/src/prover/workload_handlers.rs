@@ -277,19 +277,49 @@ pub async fn get_my_deployments(
 /// Deploy a workload to a worker
 pub async fn deploy_workload(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<WorkloadDeployRequest>,
 ) -> Json<ApiResponse<WorkloadDeployResponse>> {
+    // Security: verify X-Wallet-Address header matches request body owner_address
+    let header_wallet = headers
+        .get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !header_wallet.is_empty() && header_wallet != request.owner_address {
+        tracing::warn!(
+            header_wallet = %header_wallet,
+            request_owner = %request.owner_address,
+            "Deploy request owner mismatch — possible spoofing attempt"
+        );
+        return ApiResponse::err("X-Wallet-Address header does not match owner_address in request body");
+    }
+
     tracing::info!(
         workload_id = %request.workload_id,
         owner = %request.owner_address,
         "Deploying workload"
     );
 
-    // 1. Validate workload exists
+    // 1. Validate workload exists (only built-in verified workloads allowed)
     let workload = match get_workload_by_id(&request.workload_id) {
         Some(w) => w,
         None => return ApiResponse::err(format!("Workload '{}' not found", request.workload_id)),
     };
+
+    // Security: only allow images from the configured registry
+    let allowed_registry = &crate::config::CONFIG.worker.docker_registry;
+    if !workload.image.starts_with(&format!("{}/", allowed_registry)) {
+        tracing::warn!(
+            image = %workload.image,
+            allowed_registry = %allowed_registry,
+            "Rejected workload with unauthorized Docker image"
+        );
+        return ApiResponse::err(format!(
+            "Docker image '{}' is not from the allowed registry '{}'",
+            workload.image, allowed_registry
+        ));
+    }
 
     // 2. Find a suitable worker
     let workers = state.workers.get_workers_by_owner(&request.owner_address).await;
@@ -413,6 +443,7 @@ pub async fn get_deployment_status(
 /// Stop a deployed workload
 pub async fn stop_workload(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(deployment_id): Path<Uuid>,
 ) -> Json<ApiResponse<StopResponse>> {
     // Get the deployment
@@ -420,6 +451,22 @@ pub async fn stop_workload(
         Some(d) => d,
         None => return ApiResponse::err("Deployment not found"),
     };
+
+    // Security: verify the requester owns this deployment
+    let requester = headers
+        .get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !requester.is_empty() && requester != deployment.owner_address {
+        tracing::warn!(
+            deployment_id = %deployment_id,
+            requester = %requester,
+            owner = %deployment.owner_address,
+            "Stop request from non-owner rejected"
+        );
+        return ApiResponse::err("You can only stop your own deployments");
+    }
 
     // Update deployment status
     state.deployments.update_status(

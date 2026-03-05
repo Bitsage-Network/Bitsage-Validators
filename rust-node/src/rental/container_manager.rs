@@ -339,7 +339,9 @@ impl ContainerManager {
             port_bindings: Some(port_bindings),
             mounts: Some(mounts),
             memory: Some(config.memory_limit as i64),
+            memory_swap: Some(config.memory_limit as i64), // No swap (equal to memory = swap disabled)
             nano_cpus: Some((config.cpu_quota * 1_000_000_000.0) as i64),
+            pids_limit: Some(4096), // Prevent fork bombs
             device_requests,
             runtime: if config.use_kata { Some("kata".to_string()) } else { None },
             restart_policy: Some(bollard::models::RestartPolicy {
@@ -369,14 +371,31 @@ impl ContainerManager {
         })
     }
 
-    /// Allocate a random high port (sync version for use in sync context)
+    /// Allocate a random high port, checking both system availability and tracked allocations.
+    /// Uses blocking lock — only call from sync context within an async runtime.
     fn allocate_port_sync(&self) -> u16 {
         use rand::Rng;
         let mut rng = rand::thread_rng();
+        let mut attempts = 0;
         loop {
             let port: u16 = rng.gen_range(30000..60000);
-            // Check if port is likely available (basic check)
+            attempts += 1;
+            if attempts > 200 {
+                error!("Failed to allocate port after 200 attempts");
+                return port; // Fallback — unlikely in practice
+            }
+            // Check if port is already allocated to another rental
+            if let Ok(allocated) = self.allocated_ports.try_read() {
+                if allocated.contains(&port) {
+                    continue;
+                }
+            }
+            // Check if port is bindable on the system
             if std::net::TcpListener::bind(("0.0.0.0", port)).is_ok() {
+                // Track the allocation
+                if let Ok(mut allocated) = self.allocated_ports.try_write() {
+                    allocated.push(port);
+                }
                 return port;
             }
         }
@@ -487,10 +506,19 @@ impl ContainerManager {
     async fn create_network(&self, name: &str) -> Result<(), ContainerError> {
         debug!(network = %name, "Creating network");
 
+        // Production: internal network (no outbound internet) unless explicitly allowed
+        let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        let allow_outbound = std::env::var("RENTAL_ALLOW_OUTBOUND").is_ok();
+        let internal = is_production && !allow_outbound;
+
+        if internal {
+            info!(network = %name, "Creating internal network (no outbound internet)");
+        }
+
         let options = CreateNetworkOptions {
             name: name.to_string(),
             driver: "bridge".to_string(),
-            internal: false, // Allow outbound internet access
+            internal,
             ..Default::default()
         };
 
