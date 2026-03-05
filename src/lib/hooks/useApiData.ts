@@ -403,6 +403,7 @@ export function useNetworkStats() {
     },
     refetchInterval: 30000,
     staleTime: 15000,
+    retry: false,
   });
 }
 
@@ -1505,6 +1506,7 @@ export function useRecentJobsFromDb(limit: number = 5) {
     },
     staleTime: 15000,
     refetchInterval: 30000,
+    retry: false,
   });
 }
 
@@ -1520,6 +1522,7 @@ export function useDashboardDbStats() {
     },
     staleTime: 30000,
     refetchInterval: 60000,
+    retry: false,
   });
 }
 

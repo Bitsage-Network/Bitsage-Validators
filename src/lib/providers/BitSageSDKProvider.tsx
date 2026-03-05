@@ -82,8 +82,9 @@ export function BitSageSDKProvider({ children }: BitSageSDKProviderProps) {
     return "sepolia";
   }, []);
 
-  // API and RPC URLs from environment
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || undefined;
+  // API and RPC URLs from environment — always provide localhost fallback
+  // so the SDK doesn't default to api.sepolia.bitsage.network (which doesn't resolve)
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3030';
   const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || undefined;
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || undefined;
 
@@ -116,7 +117,8 @@ export function BitSageSDKProvider({ children }: BitSageSDKProviderProps) {
   // Always provide WebSocket context, but only connect when ready
   // This prevents "must be used within WebSocketProvider" errors during SSR
   const shouldConnectWs = Boolean(isConnected && wsUrl && mounted && wsReady);
-  const effectiveWsUrl = wsUrl || "wss://placeholder.invalid"; // Placeholder URL for SSR
+  // Use a no-op URL for SSR/pre-connect; autoConnect=false prevents actual connection
+  const effectiveWsUrl = wsUrl || 'ws://localhost:3030/ws';
 
   return (
     <SDKReadyContext.Provider value={true}>
