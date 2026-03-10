@@ -83,8 +83,8 @@ export class TEEProxy {
     this.attestation = data.attestation;
 
     return {
-      publicKey: this.enclavePublicKey,
-      attestation: this.attestation,
+      publicKey: this.enclavePublicKey!,
+      attestation: this.attestation!,
     };
   }
 
@@ -152,7 +152,7 @@ export class TEEProxy {
     // Import enclave public key
     const enclaveKeyImported = await crypto.subtle.importKey(
       'raw',
-      enclavePubKey,
+      enclavePubKey as BufferSource,
       { name: 'ECDH', namedCurve: 'P-256' },
       false,
       []
@@ -199,7 +199,7 @@ export class TEEProxy {
     // Import shared secret as HKDF key material
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      sharedSecret,
+      sharedSecret as BufferSource,
       'HKDF',
       false,
       ['deriveKey']
@@ -304,7 +304,7 @@ export class TEEProxy {
 
       const pubKey = await crypto.subtle.importKey(
         'raw',
-        pubKeyBytes,
+        pubKeyBytes as BufferSource,
         { name: 'ECDSA', namedCurve: 'P-256' },
         false,
         ['verify']
@@ -313,8 +313,8 @@ export class TEEProxy {
       return crypto.subtle.verify(
         { name: 'ECDSA', hash: 'SHA-256' },
         pubKey,
-        signatureBytes,
-        proofHashBytes
+        signatureBytes as BufferSource,
+        proofHashBytes as BufferSource
       );
     } catch {
       return false;
