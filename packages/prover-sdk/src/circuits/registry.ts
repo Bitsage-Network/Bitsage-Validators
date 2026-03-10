@@ -185,6 +185,7 @@ export class CircuitRegistry {
    */
   static getEstimatedTime(circuit: CircuitType, mode: ProofMode): number | undefined {
     const config = this.get(circuit);
+    if (mode === ProofMode.AUTO) return undefined;
     return config?.estimatedTimeMs[mode];
   }
 
@@ -195,6 +196,7 @@ export class CircuitRegistry {
     const config = this.get(circuit);
     if (!config) return false;
 
+    if (mode === ProofMode.AUTO) return true;
     return config.estimatedTimeMs[mode] !== undefined;
   }
 
