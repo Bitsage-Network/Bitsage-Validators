@@ -51,7 +51,7 @@ export async function exportPublicKey(keyPair: CryptoKeyPair): Promise<Uint8Arra
 export async function importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
-    bytes,
+    bytes as BufferSource,
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
     []
@@ -87,7 +87,7 @@ export async function deriveAESKey(
   // Import as HKDF key material
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    sharedSecret,
+    sharedSecret as BufferSource,
     'HKDF',
     false,
     ['deriveKey']
@@ -122,9 +122,9 @@ export async function encryptAESGCM(
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    data
+    data as BufferSource
   );
 
   return {
@@ -142,9 +142,9 @@ export async function decryptAESGCM(
   key: CryptoKey
 ): Promise<Uint8Array> {
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    ciphertext
+    ciphertext as BufferSource
   );
 
   return new Uint8Array(plaintext);
@@ -244,7 +244,7 @@ export function hexToBytes(hex: string): Uint8Array {
  * Compute SHA-256 hash
  */
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hash = await crypto.subtle.digest('SHA-256', data as BufferSource);
   return new Uint8Array(hash);
 }
 
