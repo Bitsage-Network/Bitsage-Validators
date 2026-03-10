@@ -4,24 +4,31 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Redirect /login and /auth to /connect (password protection removed)
+  // Redirect legacy auth routes to wallet connect
   if (pathname === '/login' || pathname === '/auth') {
     return NextResponse.redirect(new URL('/connect', request.url));
   }
 
-  // Skip auth check for public pages
+  // Public pages - no auth required
   const publicPaths = ['/connect', '/'];
   if (publicPaths.includes(pathname)) {
     return NextResponse.next();
   }
 
-  // Check for wallet connection only (demo password protection disabled)
-  // const authCookie = request.cookies.get('demo-auth');
+  // Require wallet signature verification cookie with valid Starknet address
   const walletConnected = request.cookies.get('wallet-verified');
 
-  if (!walletConnected) {
-    // Redirect to connect page if wallet not connected
+  if (!walletConnected?.value) {
     return NextResponse.redirect(new URL('/connect', request.url));
+  }
+
+  // Validate cookie value is a plausible Starknet address (0x + up to 64 hex chars)
+  const addr = walletConnected.value;
+  if (!addr.startsWith('0x') || addr.length < 4 || addr.length > 66 || !/^0x[0-9a-fA-F]+$/.test(addr)) {
+    // Invalid cookie — clear it and redirect
+    const response = NextResponse.redirect(new URL('/connect', request.url));
+    response.cookies.delete('wallet-verified');
+    return response;
   }
 
   return NextResponse.next();

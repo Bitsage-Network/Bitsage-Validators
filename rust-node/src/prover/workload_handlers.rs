@@ -14,19 +14,40 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::middleware::auth::wallet_auth;
 use super::handlers::ApiResponse;
 use super::workload_types::*;
 use super::streaming::WorkerWsMessage;
+
+/// Extract and verify the wallet address from request headers.
+/// In production with wallet_auth enabled, requires signature verification.
+/// In dev mode, trusts the X-Wallet-Address header directly.
+fn extract_verified_wallet(headers: &HeaderMap, request_path: &str) -> Result<String, String> {
+    let wallet = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "X-Wallet-Address header required".to_string())?;
+
+    if wallet_auth::is_enforced() {
+        wallet_auth::verify_wallet_header(headers, request_path)
+            .map_err(|e| format!("Wallet signature verification failed: {}", e))
+    } else {
+        Ok(wallet.to_string())
+    }
+}
 
 // ============================================================================
 // Deployment State
 // ============================================================================
 
-/// State for tracking workload deployments
+/// State for tracking workload deployments.
+/// Uses in-memory HashMap for fast reads with write-through to DB when available.
 pub struct DeploymentState {
     deployments: RwLock<HashMap<Uuid, WorkloadDeployment>>,
     /// Map from worker_id to active deployment_id
     worker_deployments: RwLock<HashMap<String, Uuid>>,
+    /// Optional DB handle for persistence (survives coordinator restart)
+    db: Option<crate::db::Database>,
 }
 
 impl DeploymentState {
@@ -34,10 +55,122 @@ impl DeploymentState {
         Self {
             deployments: RwLock::new(HashMap::new()),
             worker_deployments: RwLock::new(HashMap::new()),
+            db: None,
+        }
+    }
+
+    /// Create with DB persistence
+    pub fn with_db(db: crate::db::Database) -> Self {
+        Self {
+            deployments: RwLock::new(HashMap::new()),
+            worker_deployments: RwLock::new(HashMap::new()),
+            db: Some(db),
+        }
+    }
+
+    /// Load active deployments from DB on startup (recovery after restart)
+    pub async fn load_from_db(&self) {
+        if let Some(ref db) = self.db {
+            let repo = crate::db::repository::DeploymentRepository::new(db);
+            // Load non-terminal deployments and mark them as failed (coordinator restarted)
+            match repo.find_active().await {
+                Ok(db_deployments) => {
+                    let mut deployments = self.deployments.write().await;
+                    let mut worker_deps = self.worker_deployments.write().await;
+
+                    for db_dep in db_deployments {
+                        // Mark in-progress deployments as failed — the worker state is unknown after restart
+                        let status = if ["queued", "initializing", "downloading_model", "loading_model"].contains(&db_dep.status.as_str()) {
+                            tracing::warn!(
+                                deployment_id = %db_dep.id,
+                                workload = %db_dep.workload_id,
+                                prev_status = %db_dep.status,
+                                "Marking in-progress deployment as failed after coordinator restart"
+                            );
+                            DeploymentStatus::Failed
+                        } else if db_dep.status == "ready" {
+                            DeploymentStatus::Ready
+                        } else {
+                            continue; // Skip already-terminal states
+                        };
+
+                        let mut deployment = WorkloadDeployment::new(
+                            db_dep.workload_id,
+                            db_dep.worker_id.clone(),
+                            db_dep.owner_wallet,
+                        );
+                        deployment.id = db_dep.id;
+                        deployment.status = status.clone();
+                        deployment.created_at = db_dep.created_at;
+                        deployment.updated_at = chrono::Utc::now();
+                        if status == DeploymentStatus::Failed {
+                            deployment.error = Some("Coordinator restarted — deployment state lost".to_string());
+                        }
+
+                        worker_deps.insert(db_dep.worker_id, deployment.id);
+                        deployments.insert(deployment.id, deployment);
+                    }
+
+                    tracing::info!(count = deployments.len(), "Loaded deployments from DB");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to load deployments from DB — starting fresh");
+                }
+            }
+        }
+    }
+
+    /// Persist a deployment to DB (fire-and-forget, don't block on DB errors)
+    fn persist_to_db(&self, deployment: &WorkloadDeployment) {
+        if let Some(ref db) = self.db {
+            let repo = crate::db::repository::DeploymentRepository::new(db);
+            let db_dep = crate::db::models::DbDeployment {
+                id: deployment.id,
+                workload_id: deployment.workload_id.clone(),
+                worker_id: deployment.worker_id.clone(),
+                owner_wallet: deployment.owner_address.clone(),
+                status: format!("{:?}", deployment.status).to_lowercase(),
+                container_id: None,
+                progress_phase: deployment.progress.as_ref().map(|p| format!("{:?}", p.phase).to_lowercase()),
+                progress_percent: deployment.progress.as_ref().map(|p| p.percent as i32),
+                error_message: deployment.error.clone(),
+                created_at: deployment.created_at,
+                updated_at: deployment.updated_at,
+                ready_at: deployment.ready_at,
+                stopped_at: None,
+            };
+            // Spawn fire-and-forget — DB persistence should not block the hot path
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                let repo = crate::db::repository::DeploymentRepository::new(&db_clone);
+                if let Err(e) = repo.create(&db_dep).await {
+                    tracing::warn!(deployment_id = %db_dep.id, error = %e, "Failed to persist deployment to DB");
+                }
+            });
+        }
+    }
+
+    /// Persist a status update to DB
+    fn persist_status_update(&self, deployment_id: &Uuid, status: &DeploymentStatus, progress: &Option<DeploymentProgress>, error: &Option<String>) {
+        if let Some(ref db) = self.db {
+            let id = *deployment_id;
+            let status_str = format!("{:?}", status).to_lowercase();
+            let phase = progress.as_ref().map(|p| format!("{:?}", p.phase).to_lowercase());
+            let percent = progress.as_ref().map(|p| p.percent as i32);
+            let err = error.clone();
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                let repo = crate::db::repository::DeploymentRepository::new(&db_clone);
+                if let Err(e) = repo.update_status(&id, &status_str, phase.as_deref(), percent, err.as_deref()).await {
+                    tracing::warn!(deployment_id = %id, error = %e, "Failed to persist deployment status to DB");
+                }
+            });
         }
     }
 
     pub async fn add(&self, deployment: WorkloadDeployment) {
+        self.persist_to_db(&deployment);
+
         let mut deployments = self.deployments.write().await;
         let mut worker_deps = self.worker_deployments.write().await;
 
@@ -74,6 +207,8 @@ impl DeploymentState {
         progress: Option<DeploymentProgress>,
         error: Option<String>,
     ) {
+        self.persist_status_update(deployment_id, &status, &progress, &error);
+
         let mut deployments = self.deployments.write().await;
         if let Some(deployment) = deployments.get_mut(deployment_id) {
             deployment.update_status(status, progress, error);
@@ -233,17 +368,12 @@ pub async fn get_my_workers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Json<ApiResponse<MyWorkersResponse>> {
-    // Get owner address from header
-    let owner_address = headers
-        .get("X-Wallet-Address")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let owner_address = match extract_verified_wallet(&headers, "/api/v1/workloads/my-workers") {
+        Ok(w) => w,
+        Err(e) => return ApiResponse::err(e),
+    };
 
-    if owner_address.is_empty() {
-        return ApiResponse::err("X-Wallet-Address header required");
-    }
-
-    let workers = state.workers.get_workers_by_owner(owner_address).await;
+    let workers = state.workers.get_workers_by_owner(&owner_address).await;
 
     tracing::debug!(
         owner = %owner_address,
@@ -260,16 +390,12 @@ pub async fn get_my_deployments(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Json<ApiResponse<DeploymentsResponse>> {
-    let owner_address = headers
-        .get("X-Wallet-Address")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let owner_address = match extract_verified_wallet(&headers, "/api/v1/workloads/deployments") {
+        Ok(w) => w,
+        Err(e) => return ApiResponse::err(e),
+    };
 
-    if owner_address.is_empty() {
-        return ApiResponse::err("X-Wallet-Address header required");
-    }
-
-    let deployments = state.deployments.get_by_owner(owner_address).await;
+    let deployments = state.deployments.get_by_owner(&owner_address).await;
     ApiResponse::ok(DeploymentsResponse { deployments })
 }
 
@@ -280,12 +406,10 @@ pub async fn deploy_workload(
     headers: HeaderMap,
     Json(request): Json<WorkloadDeployRequest>,
 ) -> Json<ApiResponse<WorkloadDeployResponse>> {
-    // Security: require and verify X-Wallet-Address header matches request body owner_address
-    let header_wallet = match headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()) {
-        Some(w) if !w.is_empty() => w,
-        _ => {
-            return ApiResponse::err("X-Wallet-Address header is required for deploy requests");
-        }
+    // Security: require and verify X-Wallet-Address with signature in production
+    let header_wallet = match extract_verified_wallet(&headers, "/api/v1/workloads/deploy") {
+        Ok(w) => w,
+        Err(e) => return ApiResponse::err(e),
     };
 
     if header_wallet != request.owner_address {
@@ -347,7 +471,20 @@ pub async fn deploy_workload(
         }
     };
 
-    // 3. Validate VRAM requirements
+    // 3. Verify worker is actually connected via WebSocket (not just registered)
+    if !state.worker_channels.is_connected(&worker.id).await {
+        tracing::warn!(
+            worker_id = %worker.id,
+            owner = %request.owner_address,
+            "Deploy rejected — worker is registered but not connected via WebSocket"
+        );
+        return ApiResponse::err(format!(
+            "Worker '{}' is not connected. Ensure your GPU worker is running and has an active WebSocket connection.",
+            worker.id
+        ));
+    }
+
+    // 4. Validate VRAM requirements
     let worker_vram = worker.vram_gb.unwrap_or(0);
     if worker_vram < workload.min_vram_gb {
         return ApiResponse::err(format!(
@@ -356,15 +493,15 @@ pub async fn deploy_workload(
         ));
     }
 
-    // 4. Check if worker is already running a workload
-    if worker.active_workload.is_some() {
+    // 5. Check if worker is already running a workload
+    if let Some(active) = &worker.active_workload {
         return ApiResponse::err(format!(
             "Worker is already running '{}'. Stop it first.",
-            worker.active_workload.as_ref().unwrap()
+            active
         ));
     }
 
-    // 5. Create deployment record
+    // 6. Create deployment record
     let deployment = WorkloadDeployment::new(
         request.workload_id.clone(),
         worker.id.clone(),
@@ -374,12 +511,10 @@ pub async fn deploy_workload(
 
     state.deployments.add(deployment).await;
 
-    // 6. Update worker's active workload
+    // 7. Update worker's active workload
     state.workers.set_worker_active_workload(&worker.id, Some(request.workload_id.clone())).await;
 
-    // 7. Send deployment command to worker via WebSocket
-    // The worker channel will be handled by the WebSocket handler
-    // For now, we store the pending deployment and it will be picked up by the worker
+    // 8. Send deployment command to worker via WebSocket
 
     tracing::info!(
         deployment_id = %deployment_id,
@@ -388,13 +523,15 @@ pub async fn deploy_workload(
         "Deployment created, sending to worker"
     );
 
-    // 8. Send deployment command to worker via WebSocket channel
+    // 9. Send deployment command to worker via WebSocket channel
+    // Use digest-pinned image reference in production (prevents tag-based supply chain attacks)
+    let deployment_image = workload.deployment_image();
     let send_result = state.worker_channels.send_deployment(
         &worker.id,
         deployment_id,
         request.workload_id.clone(),
         workload.name.clone(),
-        workload.image.clone(),
+        deployment_image,
         workload.default_config.clone(),
     ).await;
 
@@ -407,14 +544,21 @@ pub async fn deploy_workload(
             );
         }
         Err(e) => {
-            tracing::warn!(
+            tracing::error!(
                 deployment_id = %deployment_id,
                 worker_id = %worker.id,
                 error = %e,
-                "Failed to send deployment command to worker (worker may not be connected via WebSocket)"
+                "Failed to send deployment command — worker disconnected between check and send"
             );
-            // Don't fail - the worker might connect later and receive pending work
-            // Or it might be connected via HTTP polling instead of WebSocket
+            // Clean up: mark deployment as failed, release worker
+            state.deployments.update_status(
+                &deployment_id,
+                DeploymentStatus::Failed,
+                None,
+                Some("Worker disconnected before deployment could be sent".to_string()),
+            ).await;
+            state.workers.set_worker_active_workload(&worker.id, None).await;
+            return ApiResponse::err("Worker disconnected before deployment could be sent. Please retry.");
         }
     }
 
@@ -438,13 +582,13 @@ pub async fn get_deployment_status(
 ) -> Json<ApiResponse<WorkloadDeployment>> {
     match state.deployments.get(&deployment_id).await {
         Some(deployment) => {
-            // In production, verify the requester owns the deployment
-            let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
-            if is_production {
-                let requester = headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()).unwrap_or("");
-                if requester.is_empty() || requester != deployment.owner_address {
-                    return ApiResponse::err("Deployment not found");
-                }
+            // Verify the requester owns the deployment (signature-verified in production)
+            let requester = match extract_verified_wallet(&headers, &format!("/api/v1/workloads/deployments/{}", deployment_id)) {
+                Ok(w) => w,
+                Err(_) => return ApiResponse::err("Deployment not found"),
+            };
+            if requester != deployment.owner_address {
+                return ApiResponse::err("Deployment not found");
             }
             ApiResponse::ok(deployment)
         }
@@ -465,12 +609,10 @@ pub async fn stop_workload(
         None => return ApiResponse::err("Deployment not found"),
     };
 
-    // Security: require the requester to own this deployment
-    let requester = match headers.get("X-Wallet-Address").and_then(|v| v.to_str().ok()) {
-        Some(w) if !w.is_empty() => w,
-        _ => {
-            return ApiResponse::err("X-Wallet-Address header is required to stop a deployment");
-        }
+    // Security: require verified wallet to stop a deployment
+    let requester = match extract_verified_wallet(&headers, &format!("/api/v1/workloads/deployments/{}/stop", deployment_id)) {
+        Ok(w) => w,
+        Err(e) => return ApiResponse::err(e),
     };
 
     if requester != deployment.owner_address {

@@ -25,7 +25,7 @@
     "geist": "^1.5.1",
     "get-starknet-core": "^4.0.0",
     "lucide-react": "^0.468.0",
-    "next": "14.2.28",
+    "next": "14.2.29",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "starknet": "^6.17.0",

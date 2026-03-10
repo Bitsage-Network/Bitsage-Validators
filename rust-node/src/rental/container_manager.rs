@@ -239,6 +239,17 @@ impl ContainerManager {
             }
         };
 
+        // Validate GPU device IDs to prevent injection via Docker device_ids.
+        // Valid formats: "GPU-<hex-uuid>" or "MIG-<hex-uuid>/<gi>/<ci>" or bare hex UUID.
+        for dev in &gpu_devices {
+            let valid = dev.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '/' || c == '_');
+            if !valid || dev.contains("..") || dev.is_empty() || dev.len() > 128 {
+                return Err(ContainerError::CreateFailed(
+                    format!("Invalid GPU device ID: {}", dev)
+                ));
+            }
+        }
+
         let vram_gb = match gpu_allocation {
             GpuAllocation::Exclusive { vram_gb, .. } => *vram_gb,
             GpuAllocation::Mig { vram_gb, .. } => *vram_gb,

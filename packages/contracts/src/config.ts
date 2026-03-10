@@ -56,11 +56,14 @@ export const NETWORK_CONFIG = {
   },
 };
 
+// Current network from env
+const currentNetwork = (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_STARKNET_NETWORK || "sepolia") as keyof typeof NETWORK_CONFIG;
+
 // External links
 export const EXTERNAL_LINKS = {
   starkgate: "https://starkgate.starknet.io",
   avnu: "https://app.avnu.fi",
-  starkscan: "https://sepolia.starkscan.co",
+  starkscan: NETWORK_CONFIG[currentNetwork]?.explorerUrl || NETWORK_CONFIG.sepolia.explorerUrl,
   docs: "https://docs.bitsage.network",
   discord: "https://discord.gg/bitsage",
   twitter: "https://twitter.com/bitsage",

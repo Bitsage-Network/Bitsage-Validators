@@ -21,6 +21,7 @@ import {
   useValidatorStats,
   useSageBalance,
 } from "@/lib/contracts";
+import { CURRENT_NETWORK } from "@/lib/contracts/addresses";
 
 // Minimum stake requirement (1000 SAGE in wei)
 const MIN_STAKE_AMOUNT = 1000n * 10n ** 18n;
@@ -298,7 +299,7 @@ function parseNetworkStats(data: unknown): NetworkStats | null {
 export function useValidatorRegistration(): UseValidatorRegistrationResult {
   const { address } = useAccount();
   const { sendAsync } = useSendTransaction({});
-  const addresses = getContractAddresses("sepolia");
+  const addresses = getContractAddresses(CURRENT_NETWORK);
 
   // State
   const [gpuInfo, setGpuInfo] = useState<GPUInfo | null>(null);
@@ -401,7 +402,7 @@ export function useValidatorRegistration(): UseValidatorRegistrationResult {
           options.stakeAmount,
           options.commissionBps || 500,
           options.attestationHash || "0",
-          "sepolia"
+          CURRENT_NETWORK
         );
 
         const response = await sendAsync(calls);
@@ -435,8 +436,8 @@ export function useValidatorRegistration(): UseValidatorRegistrationResult {
 
       try {
         const calls = [
-          buildApproveCall(addresses.VALIDATOR_REGISTRY, amount, "sepolia"),
-          buildAddValidatorStakeCall(amount, "sepolia"),
+          buildApproveCall(addresses.VALIDATOR_REGISTRY, amount, CURRENT_NETWORK),
+          buildAddValidatorStakeCall(amount, CURRENT_NETWORK),
         ];
 
         const response = await sendAsync(calls);
@@ -468,7 +469,7 @@ export function useValidatorRegistration(): UseValidatorRegistrationResult {
     setTxHash(null);
 
     try {
-      const call = buildExitValidatorCall("sepolia");
+      const call = buildExitValidatorCall(CURRENT_NETWORK);
       const response = await sendAsync([call]);
       const hash = response.transaction_hash;
 

@@ -5,19 +5,19 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Coins,
-  ArrowUpDown,
   Server,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Briefcase,
   Shield,
-  Send,
-  Wallet,
   X,
   Vote,
   TrendingUp,
-  Droplets,
+  Globe,
+  Boxes,
+  BookOpen,
+  Settings,
 } from "lucide-react";
 import { LogoIcon } from "@/components/ui/Logo";
 import { motion, AnimatePresence } from "framer-motion";
@@ -31,34 +31,28 @@ const navItems = [
     description: "GPU overview & status",
   },
   {
-    title: "Obelysk Wallet",
-    href: "/wallet",
-    icon: Wallet,
-    description: "Privacy-first GPU earnings",
-  },
-  {
-    title: "Send",
-    href: "/send",
-    icon: Send,
-    description: "Public or private transfer",
-  },
-  {
-    title: "Get SAGE",
-    href: "/trade",
-    icon: ArrowUpDown,
-    description: "Buy & sell SAGE tokens",
-  },
-  {
     title: "Jobs",
     href: "/jobs",
     icon: Briefcase,
     description: "History & analytics",
   },
   {
+    title: "Workloads",
+    href: "/workloads",
+    icon: Boxes,
+    description: "Deploy GPU workloads",
+  },
+  {
     title: "Proofs",
     href: "/proofs",
     icon: Shield,
     description: "STWO validation",
+  },
+  {
+    title: "Network",
+    href: "/network",
+    icon: Globe,
+    description: "Validators & stats",
   },
   {
     title: "Stake SAGE",
@@ -70,13 +64,25 @@ const navItems = [
     title: "Earnings",
     href: "/earnings",
     icon: TrendingUp,
-    description: "Claim rewards & analytics",
+    description: "Rewards & analytics",
   },
   {
     title: "Governance",
     href: "/governance",
     icon: Vote,
     description: "Vote on proposals",
+  },
+  {
+    title: "Docs",
+    href: "/docs",
+    icon: BookOpen,
+    description: "Setup & guides",
+  },
+  {
+    title: "Settings",
+    href: "/settings",
+    icon: Settings,
+    description: "Validator config",
   },
 ];
 
@@ -168,9 +174,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Side
           >
             <div className="flex items-center gap-2 mb-1">
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-medium text-emerald-400">Starknet Sepolia</span>
+              <span className="text-xs font-medium text-emerald-400">
+                {process.env.NEXT_PUBLIC_STARKNET_NETWORK === 'mainnet' ? 'Starknet Mainnet' : 'Starknet Sepolia'}
+              </span>
             </div>
-            <p className="text-xs text-gray-400">24 Active Validators</p>
+            <p className="text-xs text-gray-400">Validator Network</p>
           </motion.div>
         )}
       </AnimatePresence>

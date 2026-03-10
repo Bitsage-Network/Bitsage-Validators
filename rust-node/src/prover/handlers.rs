@@ -545,6 +545,38 @@ pub async fn register_gpu_worker(
         }
     }
 
+    // Validate registration fields
+    if request.worker_id.is_empty() || request.worker_id.len() > 256 {
+        return ApiResponse::err("worker_id must be 1-256 characters");
+    }
+    if !request.worker_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        return ApiResponse::err("worker_id contains invalid characters");
+    }
+    if request.capacity == 0 || request.capacity > 1000 {
+        return ApiResponse::err("capacity must be 1-1000");
+    }
+    if let Some(vram) = request.vram_gb {
+        if vram > 10000 {
+            return ApiResponse::err("vram_gb exceeds maximum (10000)");
+        }
+    }
+    if let Some(ref model) = request.gpu_model {
+        if model.len() > 256 {
+            return ApiResponse::err("gpu_model too long (max 256 chars)");
+        }
+    }
+    if let Some(ref owner) = request.owner_address {
+        if !owner.starts_with("0x") || owner.len() < 4 || owner.len() > 66 {
+            return ApiResponse::err("Invalid owner_address format");
+        }
+    }
+
+    // Cap worker pool size to prevent memory exhaustion
+    let pool_size = state.workers.gpu_worker_count().await;
+    if pool_size >= 10_000 {
+        return ApiResponse::err("Worker pool at capacity");
+    }
+
     tracing::info!(
         worker_id = %request.worker_id,
         gpu_backend = ?request.gpu_backend,
@@ -755,7 +787,29 @@ pub async fn submit_job_result(
     if request.success {
         if let Some(proof) = request.proof {
             let generation_time_ms = request.generation_time_ms.unwrap_or(0);
-            let circuit = request.circuit;
+
+            // Use the original job's circuit type AND verify the worker is actually assigned
+            let circuit = {
+                let proofs = state.proofs.read().await;
+                if let Some(job) = proofs.get_pending(&job_id) {
+                    // Verify the submitting worker is the one assigned to this job
+                    if let Some(ref assigned) = job.worker_id {
+                        if assigned != &request.worker_id {
+                            tracing::warn!(
+                                job_id = %job_id,
+                                claimed = %request.worker_id,
+                                assigned = %assigned,
+                                "Job result from worker not assigned to this job — rejecting"
+                            );
+                            return ApiResponse::err("Worker not assigned to this job");
+                        }
+                    }
+                    job.circuit
+                } else {
+                    tracing::warn!(job_id = %job_id, "Job result for unknown/completed job");
+                    return ApiResponse::err("Job not found or already completed");
+                }
+            };
 
             let result = ProofResult {
                 id: job_id,
@@ -898,21 +952,68 @@ pub struct TeeWorkersResponse {
 // ============================================================================
 
 /// Verify TEE attestation quote
+///
+/// Production: Performs structural validation of the attestation quote.
+/// Full cryptographic verification (IAS/DCAP for SGX, AMD for SEV) requires
+/// integration with vendor attestation services, which should be added before
+/// mainnet launch with real TEE hardware.
+///
+/// Current checks (production):
+///   1. Quote is non-empty and properly hex-encoded
+///   2. Quote meets minimum length for the TEE type
+///   3. Measurement field is present in the quote structure
+///
+/// Dev mode: accepts any non-empty quote with a warning.
 fn verify_attestation(quote: &str, tee_type: &TeeType) -> bool {
-    // TODO: Implement real attestation verification
-    // For SGX: Verify with Intel Attestation Service (IAS) or DCAP
-    // For TDX: Verify with DCAP
-    // For SEV: Verify with AMD attestation
+    let is_production = std::env::var("PRODUCTION").is_ok()
+        || std::env::var("BITSAGE_PRODUCTION").is_ok();
 
-    let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
-        || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+    if quote.is_empty() {
+        tracing::warn!("Empty attestation quote rejected");
+        return false;
+    }
 
     if is_production {
-        tracing::error!(
+        // Structural validation — not full crypto verification yet
+        // (Full DCAP/IAS integration needed before mainnet with real TEE hardware)
+
+        let hex_str = quote.strip_prefix("0x").unwrap_or(quote);
+
+        // Verify it's valid hex
+        if !hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+            tracing::warn!(tee_type = ?tee_type, "Attestation quote is not valid hex — rejected");
+            return false;
+        }
+
+        // Minimum quote sizes (bytes): SGX ECDSA quote ~1052 bytes, TDX ~1500, SEV ~2048
+        let min_bytes = match tee_type {
+            TeeType::Sgx => 512,  // Minimum plausible SGX quote
+            TeeType::Tdx => 512,  // Minimum plausible TDX quote
+            TeeType::Sev => 256,  // Minimum plausible SEV report
+            TeeType::Simulated => {
+                // Simulated TEE must never pass production validation
+                tracing::warn!("Simulated TEE type in production attestation — rejecting");
+                return false;
+            }
+        };
+        let quote_bytes = hex_str.len() / 2;
+
+        if quote_bytes < min_bytes {
+            tracing::warn!(
+                tee_type = ?tee_type,
+                quote_bytes = quote_bytes,
+                min_bytes = min_bytes,
+                "Attestation quote too short for TEE type — rejected"
+            );
+            return false;
+        }
+
+        tracing::info!(
             tee_type = ?tee_type,
-            "TEE attestation verification not implemented — rejecting in production"
+            quote_bytes = quote_bytes,
+            "Attestation quote passed structural validation (full crypto verification pending)"
         );
-        return false;
+        return true;
     }
 
     // Dev mode: accept any non-empty quote
@@ -922,7 +1023,7 @@ fn verify_attestation(quote: &str, tee_type: &TeeType) -> bool {
         "DEV MODE: Skipping real attestation verification"
     );
 
-    !quote.is_empty()
+    true
 }
 
 fn estimate_proof_time(circuit: &CircuitType) -> u64 {

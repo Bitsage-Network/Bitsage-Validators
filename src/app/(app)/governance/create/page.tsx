@@ -24,7 +24,7 @@ import {
   type ProposalTypeKey,
   getContractAddresses,
 } from "@/lib/contracts";
-import { SAGE_DECIMALS } from "@/lib/contracts/addresses";
+import { SAGE_DECIMALS, getExplorerUrl } from "@/lib/contracts/addresses";
 
 const CATEGORIES = [
   { id: "economics", label: "Economics", description: "Token rewards, fees, treasury" },
@@ -212,7 +212,7 @@ export default function CreateProposalPage() {
           </p>
           {txHash && (
             <a
-              href={`https://sepolia.starkscan.co/tx/${txHash}`}
+              href={`${getExplorerUrl('tx')}/${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-brand-400 hover:text-brand-300 text-sm mb-4"

@@ -104,13 +104,13 @@ impl<'a> WorkerRepository<'a> {
     pub async fn find_by_owner(&self, wallet: &str) -> Result<Vec<DbWorker>, DbError> {
         let result = match self.db {
             Database::Sqlite(pool) => {
-                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE owner_wallet = ?")
+                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE owner_wallet = ? LIMIT 1000")
                     .bind(wallet)
                     .fetch_all(pool)
                     .await?
             }
             Database::Postgres(pool) => {
-                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE owner_wallet = $1")
+                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE owner_wallet = $1 LIMIT 1000")
                     .bind(wallet)
                     .fetch_all(pool)
                     .await?
@@ -122,12 +122,12 @@ impl<'a> WorkerRepository<'a> {
     pub async fn find_online(&self) -> Result<Vec<DbWorker>, DbError> {
         let result = match self.db {
             Database::Sqlite(pool) => {
-                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE status = 'online'")
+                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE status = 'online' LIMIT 10000")
                     .fetch_all(pool)
                     .await?
             }
             Database::Postgres(pool) => {
-                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE status = 'online'")
+                sqlx::query_as::<_, DbWorker>("SELECT * FROM workers WHERE status = 'online' LIMIT 10000")
                     .fetch_all(pool)
                     .await?
             }
@@ -282,7 +282,7 @@ impl<'a> DeploymentRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbDeployment>(
-                    "SELECT * FROM deployments WHERE owner_wallet = ? ORDER BY created_at DESC"
+                    "SELECT * FROM deployments WHERE owner_wallet = ? ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -290,9 +290,30 @@ impl<'a> DeploymentRepository<'a> {
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbDeployment>(
-                    "SELECT * FROM deployments WHERE owner_wallet = $1 ORDER BY created_at DESC"
+                    "SELECT * FROM deployments WHERE owner_wallet = $1 ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
+                .fetch_all(pool)
+                .await?
+            }
+        };
+        Ok(result)
+    }
+
+    /// Find all non-terminal deployments (for recovery after coordinator restart)
+    pub async fn find_active(&self) -> Result<Vec<DbDeployment>, DbError> {
+        let result = match self.db {
+            Database::Sqlite(pool) => {
+                sqlx::query_as::<_, DbDeployment>(
+                    "SELECT * FROM deployments WHERE status NOT IN ('stopped', 'failed') ORDER BY created_at DESC LIMIT 10000"
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            Database::Postgres(pool) => {
+                sqlx::query_as::<_, DbDeployment>(
+                    "SELECT * FROM deployments WHERE status NOT IN ('stopped', 'failed') ORDER BY created_at DESC LIMIT 10000"
+                )
                 .fetch_all(pool)
                 .await?
             }
@@ -488,12 +509,12 @@ impl<'a> MarketplaceGpuRepository<'a> {
     pub async fn find_all(&self) -> Result<Vec<DbMarketplaceGpu>, DbError> {
         let result = match self.db {
             Database::Sqlite(pool) => {
-                sqlx::query_as::<_, DbMarketplaceGpu>("SELECT * FROM marketplace_gpus ORDER BY rate_sage_per_hour ASC")
+                sqlx::query_as::<_, DbMarketplaceGpu>("SELECT * FROM marketplace_gpus ORDER BY rate_sage_per_hour ASC LIMIT 5000")
                     .fetch_all(pool)
                     .await?
             }
             Database::Postgres(pool) => {
-                sqlx::query_as::<_, DbMarketplaceGpu>("SELECT * FROM marketplace_gpus ORDER BY rate_sage_per_hour ASC")
+                sqlx::query_as::<_, DbMarketplaceGpu>("SELECT * FROM marketplace_gpus ORDER BY rate_sage_per_hour ASC LIMIT 5000")
                     .fetch_all(pool)
                     .await?
             }
@@ -505,14 +526,14 @@ impl<'a> MarketplaceGpuRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbMarketplaceGpu>(
-                    "SELECT * FROM marketplace_gpus WHERE availability IN ('available', 'partially_available') ORDER BY rate_sage_per_hour ASC"
+                    "SELECT * FROM marketplace_gpus WHERE availability IN ('available', 'partially_available') ORDER BY rate_sage_per_hour ASC LIMIT 5000"
                 )
                 .fetch_all(pool)
                 .await?
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbMarketplaceGpu>(
-                    "SELECT * FROM marketplace_gpus WHERE availability IN ('available', 'partially_available') ORDER BY rate_sage_per_hour ASC"
+                    "SELECT * FROM marketplace_gpus WHERE availability IN ('available', 'partially_available') ORDER BY rate_sage_per_hour ASC LIMIT 5000"
                 )
                 .fetch_all(pool)
                 .await?
@@ -525,7 +546,7 @@ impl<'a> MarketplaceGpuRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbMarketplaceGpu>(
-                    "SELECT * FROM marketplace_gpus WHERE validator_wallet = ?"
+                    "SELECT * FROM marketplace_gpus WHERE validator_wallet = ? LIMIT 1000"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -533,7 +554,7 @@ impl<'a> MarketplaceGpuRepository<'a> {
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbMarketplaceGpu>(
-                    "SELECT * FROM marketplace_gpus WHERE validator_wallet = $1"
+                    "SELECT * FROM marketplace_gpus WHERE validator_wallet = $1 LIMIT 1000"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -722,14 +743,14 @@ impl<'a> RentalRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE status IN ('running', 'suspended')"
+                    "SELECT * FROM rental_sessions WHERE status IN ('running', 'suspended') LIMIT 10000"
                 )
                 .fetch_all(pool)
                 .await?
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE status IN ('running', 'suspended')"
+                    "SELECT * FROM rental_sessions WHERE status IN ('running', 'suspended') LIMIT 10000"
                 )
                 .fetch_all(pool)
                 .await?
@@ -815,7 +836,7 @@ impl<'a> RentalRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE tenant_wallet = ? ORDER BY created_at DESC"
+                    "SELECT * FROM rental_sessions WHERE tenant_wallet = ? ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -823,7 +844,7 @@ impl<'a> RentalRepository<'a> {
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE tenant_wallet = $1 ORDER BY created_at DESC"
+                    "SELECT * FROM rental_sessions WHERE tenant_wallet = $1 ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -837,7 +858,7 @@ impl<'a> RentalRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE validator_wallet = ? ORDER BY created_at DESC"
+                    "SELECT * FROM rental_sessions WHERE validator_wallet = ? ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -845,7 +866,7 @@ impl<'a> RentalRepository<'a> {
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbRentalSession>(
-                    "SELECT * FROM rental_sessions WHERE validator_wallet = $1 ORDER BY created_at DESC"
+                    "SELECT * FROM rental_sessions WHERE validator_wallet = $1 ORDER BY created_at DESC LIMIT 500"
                 )
                 .bind(wallet)
                 .fetch_all(pool)
@@ -1142,7 +1163,7 @@ impl<'a> BillingRecordRepository<'a> {
         let result = match self.db {
             Database::Sqlite(pool) => {
                 sqlx::query_as::<_, DbBillingRecord>(
-                    "SELECT * FROM billing_records WHERE rental_id = ? ORDER BY created_at DESC"
+                    "SELECT * FROM billing_records WHERE rental_id = ? ORDER BY created_at DESC LIMIT 10000"
                 )
                 .bind(rental_id)
                 .fetch_all(pool)
@@ -1150,7 +1171,7 @@ impl<'a> BillingRecordRepository<'a> {
             }
             Database::Postgres(pool) => {
                 sqlx::query_as::<_, DbBillingRecord>(
-                    "SELECT * FROM billing_records WHERE rental_id = $1 ORDER BY created_at DESC"
+                    "SELECT * FROM billing_records WHERE rental_id = $1 ORDER BY created_at DESC LIMIT 10000"
                 )
                 .bind(rental_id)
                 .fetch_all(pool)

@@ -5,6 +5,7 @@ import { Copy, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useCopyToClipboard } from "@/lib/hooks/useCopyToClipboard";
+import { EXTERNAL_LINKS } from "@/lib/contracts/addresses";
 
 interface CopyButtonProps {
   text: string;
@@ -256,7 +257,7 @@ export function CopyableHash({
 
   const getExplorerUrl = () => {
     if (explorerUrl) return explorerUrl;
-    const base = "https://sepolia.starkscan.co";
+    const base = EXTERNAL_LINKS.starkscan;
     switch (type) {
       case "tx":
         return `${base}/tx/${hash}`;

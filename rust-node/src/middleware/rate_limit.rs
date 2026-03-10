@@ -96,12 +96,29 @@ impl RateLimitLayer {
         Ok(())
     }
 
-    /// Clean up old limiters (call periodically)
+    /// Clean up stale rate limiters.
+    /// Limiters that haven't been checked recently will have refilled to capacity.
+    /// We evict limiters that are at full capacity (i.e. haven't been used recently).
     pub async fn cleanup(&self) {
         let mut limiters = self.ip_limiters.write().await;
-        // In production, implement proper cleanup based on last access time
-        if limiters.len() > 10000 {
-            limiters.clear();
+        let before = limiters.len();
+
+        // Remove limiters that would immediately succeed (fully refilled = inactive)
+        limiters.retain(|_ip, limiter| limiter.check().is_err());
+
+        // Safety valve: if still too large, drop the oldest half
+        if limiters.len() > 50_000 {
+            let drain_count = limiters.len() / 2;
+            let keys: Vec<String> = limiters.keys().take(drain_count).cloned().collect();
+            for key in keys {
+                limiters.remove(&key);
+            }
+            warn!(before = before, after = limiters.len(), "Rate limiter emergency eviction");
+        }
+
+        let evicted = before.saturating_sub(limiters.len());
+        if evicted > 0 {
+            debug!(evicted = evicted, remaining = limiters.len(), "Rate limiter cleanup");
         }
     }
 }
@@ -153,6 +170,10 @@ impl IntoResponse for RateLimitError {
     }
 }
 
+/// Trusted proxy subnets that are allowed to set X-Forwarded-For.
+/// Only trust this header from the Docker bridge network (Traefik) or loopback.
+const TRUSTED_PROXY_PREFIXES: &[&str] = &["172.28.", "172.17.", "127.0.0.1", "::1"];
+
 /// Middleware function for rate limiting (axum 0.7 compatible)
 pub async fn rate_limit_middleware(
     State(limiter): State<RateLimitLayer>,
@@ -160,14 +181,22 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, RateLimitError> {
-    // Get client IP (handle proxies)
-    let client_ip = request
-        .headers()
-        .get("X-Forwarded-For")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| addr.ip().to_string());
+    let peer_ip = addr.ip().to_string();
+
+    // Only trust X-Forwarded-For from known proxy IPs (Traefik on Docker bridge).
+    // Attackers sending X-Forwarded-For directly to the coordinator are not trusted.
+    let client_ip = if TRUSTED_PROXY_PREFIXES.iter().any(|prefix| peer_ip.starts_with(prefix)) {
+        request
+            .headers()
+            .get("X-Forwarded-For")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| peer_ip.clone())
+    } else {
+        // Direct connection — use peer address, ignore X-Forwarded-For
+        peer_ip
+    };
 
     // Check rate limit
     limiter.check_limit(&client_ip).await?;

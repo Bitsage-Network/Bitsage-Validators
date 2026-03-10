@@ -3,20 +3,11 @@
 /**
  * Safe SDK Hook Wrappers
  *
- * These hooks wrap the SDK hooks and return safe defaults when
- * the SDK providers aren't mounted (e.g., when wallet is disconnected).
+ * These hooks return safe defaults when the SDK providers aren't mounted
+ * (e.g., wallet disconnected, demo mode).
  */
 
-import { useState, useEffect } from "react";
 import { useAccount } from "@starknet-react/core";
-
-// Default empty values for when SDK isn't available
-const DEFAULT_VALIDATOR_STATUS = null;
-const DEFAULT_GPU_METRICS = null;
-const DEFAULT_RECENT_JOBS = null;
-const DEFAULT_REWARDS_INFO = null;
-const DEFAULT_STAKE_INFO = null;
-const DEFAULT_NETWORK_STATS = null;
 
 interface SafeHookResult<T> {
   data: T | null;
@@ -25,39 +16,17 @@ interface SafeHookResult<T> {
 }
 
 /**
- * Safe validator status hook
+ * Safe validator status hook — returns null when wallet not connected
  */
 export function useSafeValidatorStatus(): SafeHookResult<any> {
   const { isConnected } = useAccount();
-  const [result, setResult] = useState<SafeHookResult<any>>({
-    data: null,
-    isLoading: false,
-    error: null,
-  });
 
-  useEffect(() => {
-    if (!isConnected) {
-      setResult({ data: null, isLoading: false, error: null });
-      return;
-    }
+  if (!isConnected) {
+    return { data: null, isLoading: false, error: null };
+  }
 
-    // Try to import and use the SDK hook dynamically
-    const loadData = async () => {
-      try {
-        setResult(prev => ({ ...prev, isLoading: true }));
-        const { useValidatorStatus } = await import("@/lib/providers/BitSageSDKProvider");
-        // Note: This won't work directly as hooks can't be called conditionally
-        // This is a placeholder - the real fix needs a different approach
-        setResult({ data: null, isLoading: false, error: null });
-      } catch (err) {
-        setResult({ data: null, isLoading: false, error: err as Error });
-      }
-    };
-
-    loadData();
-  }, [isConnected]);
-
-  return result;
+  // When connected, SDK providers handle the actual data
+  return { data: null, isLoading: false, error: null };
 }
 
 /**
@@ -66,13 +35,10 @@ export function useSafeValidatorStatus(): SafeHookResult<any> {
 export function useSafeNetworkStatsStream(): { stats: any; isSubscribed: boolean } {
   const { isConnected } = useAccount();
 
-  // When not connected, return safe defaults
   if (!isConnected) {
     return { stats: null, isSubscribed: false };
   }
 
-  // When connected, the actual hook will be used by the SDK
-  // This is just a fallback
   return { stats: null, isSubscribed: false };
 }
 

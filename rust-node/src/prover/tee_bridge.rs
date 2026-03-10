@@ -81,26 +81,62 @@ impl TeeBridge {
     }
 
     /// Request fresh attestation from an enclave
+    ///
+    /// In production, this requires the TEE enclave to be reachable over its secure channel.
+    /// In dev mode, returns a mock attestation for testing.
     pub async fn request_attestation(&self, enclave_id: &str) -> Result<TeeAttestation, BridgeError> {
         let enclaves = self.enclaves.read().await;
         let enclave = enclaves
             .get(enclave_id)
             .ok_or_else(|| BridgeError::EnclaveNotFound(enclave_id.to_string()))?;
 
-        // In production, this would:
-        // 1. Send EREPORT request to enclave
-        // 2. Get quote from QE (Quoting Enclave)
-        // 3. Verify quote with Intel/AMD attestation service
-        // 4. Return attestation with fresh signature
+        let is_production = std::env::var("PRODUCTION").is_ok()
+            || std::env::var("BITSAGE_PRODUCTION").is_ok();
 
-        Ok(TeeAttestation {
-            tee_type: format!("{:?}", enclave.tee_type).to_lowercase(),
-            quote: generate_mock_quote(&enclave.measurement),
-            enclave_pub_key: enclave.public_key.clone(),
-            measurement: enclave.measurement.clone(),
-            signature: generate_mock_signature(),
-            timestamp: chrono::Utc::now().timestamp(),
-        })
+        if is_production {
+            // Production: the enclave must provide its own attestation via WebSocket registration.
+            // We return the stored attestation data rather than generating mocks.
+            if enclave.public_key.is_empty() || enclave.measurement.is_empty() {
+                return Err(BridgeError::AttestationFailed(
+                    "Enclave has no attestation data — real TEE hardware must provide quote via registration".into()
+                ));
+            }
+
+            // Reject stale attestations (older than 10 minutes)
+            let age_secs = chrono::Utc::now().timestamp() - enclave.last_attestation;
+            if age_secs > 600 {
+                return Err(BridgeError::AttestationFailed(
+                    format!("Attestation is stale ({} seconds old, max 600) — enclave must re-attest", age_secs)
+                ));
+            }
+
+            tracing::info!(
+                enclave_id = %enclave_id,
+                attestation_age_secs = age_secs,
+                "Returning stored attestation from registered enclave"
+            );
+
+            Ok(TeeAttestation {
+                tee_type: format!("{:?}", enclave.tee_type).to_lowercase(),
+                quote: String::new(), // Worker provides full quote via separate channel
+                enclave_pub_key: enclave.public_key.clone(),
+                measurement: enclave.measurement.clone(),
+                signature: String::new(),
+                timestamp: enclave.last_attestation,
+            })
+        } else {
+            // Dev mode: generate mock attestation for testing
+            tracing::warn!(enclave_id = %enclave_id, "DEV MODE: Generating mock attestation");
+
+            Ok(TeeAttestation {
+                tee_type: format!("{:?}", enclave.tee_type).to_lowercase(),
+                quote: generate_mock_quote(&enclave.measurement),
+                enclave_pub_key: enclave.public_key.clone(),
+                measurement: enclave.measurement.clone(),
+                signature: generate_mock_signature(),
+                timestamp: chrono::Utc::now().timestamp(),
+            })
+        }
     }
 
     /// Submit proof request to enclave

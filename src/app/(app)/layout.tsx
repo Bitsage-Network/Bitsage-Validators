@@ -17,7 +17,7 @@ import { useGlobalShortcuts } from "@/lib/hooks/useKeyboardShortcuts";
 import { Loader2, FlaskConical, X, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { setApiWalletAddress } from "@/lib/api/client";
+import { setApiWalletAddress, setApiWalletSigner } from "@/lib/api/client";
 
 // Clear wallet cookie on disconnect
 function clearWalletCookie() {
@@ -31,7 +31,7 @@ export default function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { address, isConnecting, isReconnecting } = useAccount();
+  const { address, account, isConnecting, isReconnecting } = useAccount();
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -58,11 +58,38 @@ export default function AppLayout({
     return () => clearTimeout(timer);
   }, []);
 
-  // Sync wallet address to API client for X-Wallet-Address header
+  // Sync wallet address and signer to API client
   useEffect(() => {
     setApiWalletAddress(address ?? null);
-    return () => setApiWalletAddress(null);
-  }, [address]);
+
+    if (address && account) {
+      setApiWalletSigner(async (messageHash: string) => {
+        const sig = await account.signMessage({
+          types: {
+            StarkNetDomain: [
+              { name: "name", type: "felt" },
+            ],
+            Message: [
+              { name: "hash", type: "felt" },
+            ],
+          },
+          primaryType: "Message",
+          domain: { name: "BitSage" },
+          message: { hash: messageHash },
+        });
+        // signMessage returns Signature which is string[] — [r, s]
+        const sigArray = Array.isArray(sig) ? sig : [sig];
+        return { r: sigArray[0] || "0x0", s: sigArray[1] || "0x0" };
+      });
+    } else {
+      setApiWalletSigner(null);
+    }
+
+    return () => {
+      setApiWalletAddress(null);
+      setApiWalletSigner(null);
+    };
+  }, [address, account]);
 
   // Redirect when disconnected (after ready)
   useEffect(() => {

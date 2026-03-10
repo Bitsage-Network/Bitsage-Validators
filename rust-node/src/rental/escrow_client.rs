@@ -385,10 +385,10 @@ impl EscrowClient {
         info!(
             rental_id = %rental_id,
             tx_hash = %result.transaction_hash,
-            "Started rental on-chain"
+            "Start-rental tx sent, awaiting confirmation"
         );
 
-        Ok(result.transaction_hash)
+        self.wait_for_receipt(result.transaction_hash, "start_rental").await
     }
 
     /// Charge a rental on-chain
@@ -418,10 +418,10 @@ impl EscrowClient {
             rental_id = %rental_id,
             hours = hours,
             tx_hash = %result.transaction_hash,
-            "Charged rental on-chain"
+            "Charge-rental tx sent, awaiting confirmation"
         );
 
-        Ok(result.transaction_hash)
+        self.wait_for_receipt(result.transaction_hash, "charge_rental").await
     }
 
     /// Stop a rental on-chain
@@ -443,10 +443,10 @@ impl EscrowClient {
         info!(
             rental_id = %rental_id,
             tx_hash = %result.transaction_hash,
-            "Stopped rental on-chain"
+            "Stop-rental tx sent, awaiting confirmation"
         );
 
-        Ok(result.transaction_hash)
+        self.wait_for_receipt(result.transaction_hash, "stop_rental").await
     }
 
     /// Extend a rental on-chain
@@ -476,10 +476,10 @@ impl EscrowClient {
             rental_id = %rental_id,
             additional_hours = additional_hours,
             tx_hash = %result.transaction_hash,
-            "Extended rental on-chain"
+            "Extend-rental tx sent, awaiting confirmation"
         );
 
-        Ok(result.transaction_hash)
+        self.wait_for_receipt(result.transaction_hash, "extend_rental").await
     }
 
     /// Submit proof verification to the on-chain verifier contract
@@ -498,29 +498,43 @@ impl EscrowClient {
         let verifier_felt = FieldElement::from_hex_be(verifier_address)
             .map_err(|e| EscrowClientError::InvalidAddress(format!("Verifier address {}: {}", verifier_address, e)))?;
 
+        // Reject zero verifier address — would waste gas on invalid contract
+        if verifier_felt == FieldElement::ZERO {
+            return Err(EscrowClientError::InvalidAddress("Verifier address cannot be 0x0".to_string()));
+        }
+
         // Build calldata: commitment, FRI layer commitments, public inputs
+        // Reject malformed hex data instead of silently substituting ZERO
         let mut call_data = Vec::new();
 
         // Add the proof commitment
         let commitment_felt = FieldElement::from_hex_be(&proof.proof.commitment)
-            .unwrap_or(FieldElement::ZERO);
+            .map_err(|e| EscrowClientError::InvalidAddress(format!("Invalid proof commitment hex: {}", e)))?;
         call_data.push(commitment_felt);
 
         // Add FRI layer commitments count + data
         call_data.push(Felt::from(proof.proof.fri.layer_commitments.len() as u64));
         for lc in &proof.proof.fri.layer_commitments {
-            call_data.push(FieldElement::from_hex_be(lc).unwrap_or(FieldElement::ZERO));
+            call_data.push(FieldElement::from_hex_be(lc)
+                .map_err(|e| EscrowClientError::InvalidAddress(format!("Invalid FRI commitment hex: {}", e)))?);
         }
 
         // Add public inputs count + data
         call_data.push(Felt::from(proof.proof.public_inputs.len() as u64));
         for pi in &proof.proof.public_inputs {
-            call_data.push(FieldElement::from_hex_be(pi).unwrap_or(FieldElement::ZERO));
+            call_data.push(FieldElement::from_hex_be(pi)
+                .map_err(|e| EscrowClientError::InvalidAddress(format!("Invalid public input hex: {}", e)))?);
         }
 
-        // Add any extra calldata from the request
+        // Add any extra calldata from the request (bounded to prevent gas bombs)
+        if calldata.len() > 256 {
+            return Err(EscrowClientError::InvalidAddress(
+                format!("Calldata too large: {} items (max 256)", calldata.len())
+            ));
+        }
         for cd in calldata {
-            call_data.push(FieldElement::from_hex_be(cd).unwrap_or(FieldElement::ZERO));
+            call_data.push(FieldElement::from_hex_be(cd)
+                .map_err(|e| EscrowClientError::InvalidAddress(format!("Invalid calldata hex: {}", e)))?);
         }
 
         // Use "verify_proof" selector
@@ -642,6 +656,64 @@ impl EscrowClient {
             .get_transaction_receipt(tx_hash)
             .await
             .map_err(|e| EscrowClientError::RpcError(format!("Failed to get receipt: {}", e)))
+    }
+
+    /// Poll for transaction receipt and verify execution succeeded.
+    ///
+    /// Retries with exponential backoff: 2s, 4s, 8s, 16s, 32s (5 attempts, ~62s total).
+    /// Returns the tx_hash on success, or an error if reverted or timed out.
+    async fn wait_for_receipt(&self, tx_hash: Felt, op: &str) -> Result<Felt, EscrowClientError> {
+        let mut delay = std::time::Duration::from_secs(2);
+        let max_attempts = 5u32;
+
+        for attempt in 1..=max_attempts {
+            tokio::time::sleep(delay).await;
+
+            match self.get_transaction_receipt(tx_hash).await {
+                Ok(receipt) => {
+                    let execution_result = match &receipt {
+                        MaybePendingTransactionReceipt::Receipt(r) => {
+                            use starknet::core::types::TransactionReceipt;
+                            match r {
+                                TransactionReceipt::Invoke(r) => Some(&r.execution_result),
+                                TransactionReceipt::Declare(r) => Some(&r.execution_result),
+                                TransactionReceipt::Deploy(r) => Some(&r.execution_result),
+                                TransactionReceipt::DeployAccount(r) => Some(&r.execution_result),
+                                TransactionReceipt::L1Handler(r) => Some(&r.execution_result),
+                            }
+                        }
+                        MaybePendingTransactionReceipt::PendingReceipt(_) => {
+                            // Still pending — keep polling
+                            debug!(tx_hash = %tx_hash, attempt, op, "Transaction still pending");
+                            delay *= 2;
+                            continue;
+                        }
+                    };
+
+                    if let Some(result) = execution_result {
+                        match result {
+                            ExecutionResult::Succeeded => {
+                                info!(tx_hash = %tx_hash, op, "Transaction confirmed on-chain");
+                                return Ok(tx_hash);
+                            }
+                            ExecutionResult::Reverted { reason } => {
+                                return Err(EscrowClientError::TransactionReverted(
+                                    format!("{} tx 0x{:x} reverted: {}", op, tx_hash, reason)
+                                ));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    // RPC error — may be transient, keep retrying
+                    warn!(tx_hash = %tx_hash, attempt, op, error = %e, "Failed to fetch receipt, retrying");
+                    delay *= 2;
+                    continue;
+                }
+            }
+        }
+
+        Err(EscrowClientError::ReceiptTimeout(format!("0x{:x}", tx_hash)))
     }
 
     /// Verify a deposit transaction
@@ -907,6 +979,12 @@ pub enum EscrowClientError {
 
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
+
+    #[error("Transaction reverted: {0}")]
+    TransactionReverted(String),
+
+    #[error("Receipt timeout: tx {0} not confirmed after polling")]
+    ReceiptTimeout(String),
 }
 
 #[cfg(test)]

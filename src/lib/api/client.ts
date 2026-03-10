@@ -39,11 +39,57 @@ export function setApiWalletAddress(address: string | null) {
   _walletAddress = address;
 }
 
-// Request interceptor for auth and logging
+/**
+ * Wallet signing callback type.
+ * Signs a message and returns {r, s} hex strings for Starknet ECDSA.
+ */
+export type WalletSigner = (messageHash: string) => Promise<{ r: string; s: string }>;
+
+// Optional signer — set by the wallet provider for production signature verification
+let _walletSigner: WalletSigner | null = null;
+
+/** Register a wallet signer for API request authentication.
+ *  When set, mutating requests (POST/PUT/DELETE/PATCH) will include
+ *  X-Signature-R, X-Signature-S, and X-Signature-Timestamp headers.
+ */
+export function setApiWalletSigner(signer: WalletSigner | null) {
+  _walletSigner = signer;
+}
+
+/** Compute SHA-256 hex hash of a string (for request signing) */
+async function sha256Hex(message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Request interceptor for auth, signing, and logging
 apiClient.interceptors.request.use(
-  (config) => {
+  async (config) => {
     if (_walletAddress) {
       config.headers['X-Wallet-Address'] = _walletAddress;
+
+      // Sign mutating requests when a signer is available
+      const isMutating = ['post', 'put', 'delete', 'patch'].includes(
+        config.method?.toLowerCase() || ''
+      );
+
+      if (_walletSigner && isMutating) {
+        try {
+          const timestamp = Math.floor(Date.now() / 1000).toString();
+          const requestPath = config.url || '/';
+          const messageHash = await sha256Hex(`${_walletAddress}:${timestamp}:${requestPath}`);
+
+          const { r, s } = await _walletSigner(`0x${messageHash}`);
+          config.headers['X-Signature-R'] = r;
+          config.headers['X-Signature-S'] = s;
+          config.headers['X-Signature-Timestamp'] = timestamp;
+        } catch (err) {
+          debugLog('[API] Wallet signing failed, sending without signature:', err);
+        }
+      }
     }
 
     debugLog(`[API] ${config.method?.toUpperCase()} ${config.url}`);

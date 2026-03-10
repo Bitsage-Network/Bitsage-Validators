@@ -116,7 +116,8 @@ export default function ConnectPage() {
 
   useEffect(() => {
     if (isConnected && address && hasExplicitlyConnected && hasVerifiedSignature) {
-      // User connected AND signed - redirect to dashboard
+      // Ensure cookie is set before redirect (middleware requires it)
+      document.cookie = `wallet-verified=${address}; path=/; max-age=86400; SameSite=Strict; Secure`;
       router.push("/dashboard");
     } else if (!isConnected) {
       setStep("connect");
@@ -146,7 +147,7 @@ export default function ConnectPage() {
       setSignatureStep('success');
 
       // Set cookie to indicate wallet is verified (for middleware auth)
-      document.cookie = `wallet-verified=${address}; path=/; max-age=86400`; // 24 hours
+      document.cookie = `wallet-verified=${address}; path=/; max-age=86400; SameSite=Strict; Secure`; // 24 hours
 
       // Auto-close modal and redirect after success
       setTimeout(() => {
@@ -205,6 +206,10 @@ export default function ConnectPage() {
   // Handle continue to dashboard (for already connected wallets)
   const handleContinueToDashboard = async () => {
     if (hasVerifiedSignature) {
+      // Ensure cookie is set before navigating (middleware requires it)
+      if (address) {
+        document.cookie = `wallet-verified=${address}; path=/; max-age=86400; SameSite=Strict; Secure`;
+      }
       router.push("/dashboard");
       return;
     }

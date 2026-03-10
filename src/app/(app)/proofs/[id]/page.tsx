@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 import Link from "next/link";
 import { PrivacyModeToggle } from "@/components/privacy/PrivacyToggle";
 import { useProofDetail } from "@/lib/hooks/useApiData";
@@ -318,7 +319,7 @@ export default function ProofDetailPage() {
           </button>
           {proof.txHash && (
             <a
-              href={`https://sepolia.starkscan.co/tx/${proof.txHash}`}
+              href={`${getExplorerUrl('tx')}/${proof.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-primary flex items-center gap-2"
@@ -874,7 +875,7 @@ export default function ProofDetailPage() {
                 value={proof.verification.verifierContract}
                 onCopy={() => copyToClipboard(proof.verification.verifierContract, "verifier")}
                 copied={copiedField === "verifier"}
-                link={`https://sepolia.starkscan.co/contract/${proof.verification.verifierContract}`}
+                link={`${getExplorerUrl('contract')}/${proof.verification.verifierContract}`}
               />
               {/* Fiat-Shamir: challenges derived from channel state, not explicit seed */}
               <div className="p-3 rounded-lg bg-surface-elevated/50">

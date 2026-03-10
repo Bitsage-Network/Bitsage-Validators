@@ -46,7 +46,7 @@ import {
   type JobTypeKey,
   type VerificationMethodKey,
 } from "@/lib/contracts";
-import { SAGE_DECIMALS } from "@/lib/contracts/addresses";
+import { SAGE_DECIMALS, getExplorerUrl } from "@/lib/contracts/addresses";
 import { hash } from "starknet";
 
 // Job type configurations for UI
@@ -708,7 +708,7 @@ export function JobSubmissionModal({ isOpen, onClose, onSuccess }: JobSubmission
                 </p>
                 {txHash && (
                   <a
-                    href={`https://sepolia.starkscan.co/tx/${txHash}`}
+                    href={`${getExplorerUrl('tx')}/${txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand-400 hover:text-brand-300 text-sm underline"

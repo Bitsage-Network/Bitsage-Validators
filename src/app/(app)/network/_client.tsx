@@ -30,6 +30,7 @@ import {
 } from "@/lib/providers/BitSageSDKProvider";
 import { useNetworkPageData } from "@/lib/hooks/useApiData";
 import { DataSourceIndicator, DataSourceBanner, type DataSourceType } from "@/components/common/DataSourceIndicator";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 import type { NetworkStatsBase, WorkerData, LeaderboardWorker, TopValidator } from "@/types/network";
 
 // GPU type colors for distribution chart
@@ -665,7 +666,7 @@ export default function NetworkPage() {
                     <td className="p-4">
                       {validator.fullAddress && (
                         <a
-                          href={`https://sepolia.starkscan.co/contract/${validator.fullAddress}`}
+                          href={`${getExplorerUrl('contract')}/${validator.fullAddress}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-brand-400 hover:text-brand-300"

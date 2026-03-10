@@ -45,6 +45,11 @@ impl WorkerPool {
         }
     }
 
+    /// Get current GPU worker count
+    pub async fn gpu_worker_count(&self) -> usize {
+        self.gpu_workers.read().await.len()
+    }
+
     /// Register a GPU worker
     pub async fn register_gpu_worker(&self, worker: GpuWorker) {
         let id = worker.id.clone();
@@ -98,17 +103,34 @@ impl WorkerPool {
         }
     }
 
+    /// Maximum queued jobs to prevent memory exhaustion
+    const MAX_QUEUE_SIZE: usize = 10_000;
+
     /// Enqueue a job for pull-based worker assignment
-    pub async fn enqueue_job(&self, job: handlers::PendingJobInfo) {
+    pub async fn enqueue_job(&self, job: handlers::PendingJobInfo) -> Result<(), String> {
         let mut queue = self.job_queue.write().await;
-        tracing::info!(job_id = %job.job_id, "Job enqueued for worker assignment");
+        if queue.len() >= Self::MAX_QUEUE_SIZE {
+            return Err(format!("Job queue at capacity ({})", Self::MAX_QUEUE_SIZE));
+        }
+        tracing::info!(job_id = %job.job_id, queue_len = queue.len(), "Job enqueued for worker assignment");
         queue.push_back(job);
+        Ok(())
     }
 
     /// Get a pending job for a worker (called during heartbeat).
-    /// Pops the next job from the queue and assigns it to the requesting worker.
+    /// Pops the next non-expired job from the queue and assigns it to the requesting worker.
     pub async fn get_pending_job_for_worker(&self, worker_id: &str) -> Option<handlers::PendingJobInfo> {
         let mut queue = self.job_queue.write().await;
+        let now = chrono::Utc::now().timestamp();
+        // Skip expired jobs
+        while let Some(front) = queue.front() {
+            if front.deadline < now {
+                let expired = queue.pop_front().unwrap();
+                tracing::debug!(job_id = %expired.job_id, "Skipping expired queued job");
+                continue;
+            }
+            break;
+        }
         if let Some(job) = queue.pop_front() {
             tracing::info!(
                 job_id = %job.job_id,

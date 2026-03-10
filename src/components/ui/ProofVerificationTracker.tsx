@@ -24,6 +24,7 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 
 // Verification stages
 type VerificationStage =
@@ -64,10 +65,11 @@ export function ProofVerificationTracker({
   proofs,
   onRetry,
   onDismiss,
-  explorerBaseUrl = "https://sepolia.starkscan.co/tx/",
+  explorerBaseUrl,
   compact = false,
   className,
 }: ProofVerificationTrackerProps) {
+  const effectiveExplorerBaseUrl = explorerBaseUrl || `${getExplorerUrl('tx')}/`;
   // Group proofs by status
   const { pending, verified, failed } = useMemo(() => {
     return proofs.reduce(
@@ -136,7 +138,7 @@ export function ProofVerificationTracker({
                 proof={proof}
                 onRetry={onRetry}
                 onDismiss={onDismiss}
-                explorerBaseUrl={explorerBaseUrl}
+                explorerBaseUrl={effectiveExplorerBaseUrl}
               />
             ))}
           </div>
@@ -156,7 +158,7 @@ export function ProofVerificationTracker({
                 key={proof.id}
                 proof={proof}
                 onDismiss={onDismiss}
-                explorerBaseUrl={explorerBaseUrl}
+                explorerBaseUrl={effectiveExplorerBaseUrl}
               />
             ))}
           </div>
@@ -177,7 +179,7 @@ export function ProofVerificationTracker({
                 proof={proof}
                 onRetry={onRetry}
                 onDismiss={onDismiss}
-                explorerBaseUrl={explorerBaseUrl}
+                explorerBaseUrl={effectiveExplorerBaseUrl}
               />
             ))}
           </div>

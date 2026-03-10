@@ -22,7 +22,7 @@ use tokio::signal;
 use tower_http::cors::{Any, AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
@@ -127,13 +127,19 @@ async fn main() -> anyhow::Result<()> {
         router: ProofRouter::new(),
         workers: WorkerPool::new(),
         proofs: RwLock::new(ProofState::new()),
-        deployments: DeploymentState::new(),
+        deployments: match &db {
+            Some(database) => DeploymentState::with_db(database.clone()),
+            None => DeploymentState::new(),
+        },
         rentals,
         worker_channels: WorkerChannelManager::new(),
         db,
         auth: AuthState::new(),
         started_at: Instant::now(),
     });
+
+    // Recover deployment state from DB (if available)
+    state.deployments.load_from_db().await;
 
     // Initialize GPU manager
     if let Err(e) = state.rentals.gpus.initialize().await {
@@ -160,8 +166,16 @@ async fn main() -> anyhow::Result<()> {
             let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.metrics.port));
             info!("Metrics server listening on {}", addr);
 
-            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-            axum::serve(listener, metrics_app).await.unwrap();
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    if let Err(e) = axum::serve(listener, metrics_app).await {
+                        tracing::error!(error = %e, "Metrics server exited with error");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, addr = %addr, "Failed to bind metrics server — metrics unavailable");
+                }
+            }
         });
     }
 
@@ -306,6 +320,7 @@ fn build_router(
                     .allow_headers(Any)
             }
         })
+        .layer(axum::extract::DefaultBodyLimit::max(CONFIG.server.max_body_size))
         .layer(TimeoutLayer::new(Duration::from_secs(CONFIG.server.request_timeout_secs)))
         .layer(TraceLayer::new_for_http())
 }
@@ -325,202 +340,319 @@ async fn health_check(
     Json(HealthStatus::healthy(uptime, db_ok, workers_count))
 }
 
-/// Spawn background tasks
+/// Spawn a supervised background task that logs panics and restarts with exponential backoff.
+/// `task_fn` is a closure that returns a new future on each restart (so captured state is cloned).
+fn spawn_supervised<F, Fut>(name: &'static str, task_fn: F)
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut restart_count: u32 = 0;
+        loop {
+            let handle = tokio::spawn(task_fn());
+            match handle.await {
+                Ok(()) => {
+                    // Normal exit — task completed (should not happen for infinite loops)
+                    error!(task = name, "Background task exited — not restarting");
+                    break;
+                }
+                Err(e) if e.is_panic() => {
+                    restart_count = restart_count.saturating_add(1);
+                    let backoff = std::cmp::min(5 * restart_count as u64, 60);
+                    error!(
+                        task = name,
+                        restart_count = restart_count,
+                        backoff_secs = backoff,
+                        "Background task panicked — restarting"
+                    );
+                    tokio::time::sleep(Duration::from_secs(backoff)).await;
+                }
+                Err(e) => {
+                    // Cancelled — shutdown in progress
+                    info!(task = name, error = %e, "Background task cancelled");
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// Spawn background tasks with panic supervision
 fn spawn_background_tasks(
     state: Arc<AppState>,
     suspension_rx: Option<tokio::sync::mpsc::Receiver<rental::SuspensionEvent>>,
 ) {
     // Task: Check for stuck deployments
-    let cleanup_state = state.clone();
-    tokio::spawn(async move {
-        let timeout_secs: i64 = CONFIG.worker.deployment_timeout_secs as i64;
-        let check_interval = Duration::from_secs(60);
+    {
+        let cleanup_state = state.clone();
+        spawn_supervised("deployment-cleanup", move || {
+            let s = cleanup_state.clone();
+            async move {
+                let timeout_secs: i64 = CONFIG.worker.deployment_timeout_secs as i64;
+                let check_interval = Duration::from_secs(60);
 
-        loop {
-            tokio::time::sleep(check_interval).await;
+                loop {
+                    tokio::time::sleep(check_interval).await;
 
-            let stuck = cleanup_state.deployments.get_stuck_deployments(timeout_secs).await;
+                    let stuck = s.deployments.get_stuck_deployments(timeout_secs).await;
 
-            for deployment in stuck {
-                warn!(
-                    deployment_id = %deployment.id,
-                    workload = %deployment.workload_id,
-                    worker = %deployment.worker_id,
-                    status = ?deployment.status,
-                    "Timing out stuck deployment"
-                );
+                    for deployment in stuck {
+                        warn!(
+                            deployment_id = %deployment.id,
+                            workload = %deployment.workload_id,
+                            worker = %deployment.worker_id,
+                            status = ?deployment.status,
+                            "Timing out stuck deployment"
+                        );
 
-                cleanup_state.deployments.timeout_deployment(&deployment.id).await;
-                cleanup_state.workers.set_worker_active_workload(&deployment.worker_id, None).await;
-            }
-        }
-    });
-
-    // Task: Hourly rental billing and expiration checks
-    let billing_state = state.clone();
-    tokio::spawn(async move {
-        let billing_interval = Duration::from_secs(CONFIG.rental.billing_interval_secs);
-        let expiration_interval = Duration::from_secs(CONFIG.rental.expiration_check_interval_secs);
-
-        let mut last_billing = Instant::now();
-
-        loop {
-            tokio::time::sleep(expiration_interval).await;
-
-            // Check for expired rentals
-            billing_state.rentals.sessions.check_expirations(
-                &billing_state.rentals.containers,
-                &billing_state.rentals.gpus,
-                &billing_state.rentals.network,
-                &billing_state.rentals.billing,
-            ).await;
-
-            // Process billing periodically
-            if last_billing.elapsed() >= billing_interval {
-                last_billing = Instant::now();
-
-                if let Err(e) = billing_state.rentals.billing.process_hourly_billing(
-                    &billing_state.rentals.sessions,
-                ).await {
-                    error!(error = %e, "Failed to process hourly billing");
+                        s.deployments.timeout_deployment(&deployment.id).await;
+                        s.workers.set_worker_active_workload(&deployment.worker_id, None).await;
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
-    // Task: Update business metrics
-    let metrics_state = state.clone();
-    tokio::spawn(async move {
-        let interval = Duration::from_secs(30);
-
-        loop {
-            tokio::time::sleep(interval).await;
-
-            // Update worker metrics
-            let workers = metrics_state.workers.total_workers().await;
-            BusinessMetrics::set_active_workers(workers);
-
-            // Update WebSocket metrics
-            let ws_workers = metrics_state.worker_channels.connection_count().await;
-            BusinessMetrics::set_websocket_connections(0, ws_workers);
-        }
-    });
-
-    // Task: Rate limiter cleanup
-    let rate_limiter = RateLimitLayer::new();
-    tokio::spawn(async move {
-        let interval = Duration::from_secs(300); // 5 minutes
-
-        loop {
-            tokio::time::sleep(interval).await;
-            rate_limiter.cleanup().await;
-        }
-    });
-
-    // Task: Worker heartbeat timeout check
-    let heartbeat_state = state.clone();
-    tokio::spawn(async move {
-        let timeout_secs = CONFIG.worker.heartbeat_timeout_secs;
-        let check_interval = Duration::from_secs(30);
-
-        loop {
-            tokio::time::sleep(check_interval).await;
-
-            // Mark workers offline if no heartbeat within timeout
-            let stale_count = heartbeat_state.workers.mark_stale_workers_offline(timeout_secs).await;
-            if stale_count > 0 {
-                tracing::warn!(count = stale_count, timeout_secs = timeout_secs, "Marked stale workers offline");
+    // Task: Periodic GPU state refresh (keeps cache in sync with hardware)
+    {
+        let gpu_refresh_state = state.clone();
+        spawn_supervised("gpu-refresh", move || {
+            let s = gpu_refresh_state.clone();
+            async move {
+                let interval = Duration::from_secs(300);
+                loop {
+                    tokio::time::sleep(interval).await;
+                    if let Err(e) = s.rentals.gpus.refresh().await {
+                        warn!(error = %e, "GPU state refresh failed");
+                    }
+                }
             }
-        }
-    });
+        });
+    }
 
-    // Task: Expire overdue proof jobs
-    let expiry_state = state.clone();
-    tokio::spawn(async move {
-        let check_interval = Duration::from_secs(15);
+    // Task: Hourly rental billing and expiration checks
+    {
+        let billing_state = state.clone();
+        spawn_supervised("billing-expiration", move || {
+            let s = billing_state.clone();
+            async move {
+                let billing_interval = Duration::from_secs(CONFIG.rental.billing_interval_secs);
+                let expiration_interval = Duration::from_secs(CONFIG.rental.expiration_check_interval_secs);
 
-        loop {
-            tokio::time::sleep(check_interval).await;
+                let mut last_billing = Instant::now();
 
-            let expired = {
-                let mut proofs = expiry_state.proofs.write().await;
-                proofs.expire_overdue_jobs()
-            };
+                loop {
+                    tokio::time::sleep(expiration_interval).await;
 
-            for (job_id, worker_id) in &expired {
-                tracing::warn!(
-                    job_id = %job_id,
-                    worker_id = ?worker_id,
-                    "Expired overdue proof job"
-                );
-            }
-        }
-    });
+                    // Check for expired rentals
+                    s.rentals.sessions.check_expirations(
+                        &s.rentals.containers,
+                        &s.rentals.gpus,
+                        &s.rentals.network,
+                        &s.rentals.billing,
+                    ).await;
 
-    // Task: Auto-settle validator earnings on-chain (every 5 minutes)
-    let settlement_state = state.clone();
-    tokio::spawn(async move {
-        let interval = Duration::from_secs(300); // 5 minutes
-        let min_settlement_sage: u64 = 50; // Minimum 50 SAGE to trigger settlement
-
-        loop {
-            tokio::time::sleep(interval).await;
-
-            // Only attempt if on-chain escrow is configured
-            if !settlement_state.rentals.billing.is_on_chain_enabled() {
-                continue;
-            }
-
-            let settleable = settlement_state.rentals.billing
-                .get_settleable_validators(min_settlement_sage).await;
-
-            if settleable.is_empty() {
-                continue;
-            }
-
-            info!(
-                count = settleable.len(),
-                "Auto-settlement: found validators with pending earnings"
-            );
-
-            for (wallet, amount) in &settleable {
-                // Log the settlement opportunity (actual on-chain tx requires coordinator key)
-                if let Some(escrow) = settlement_state.rentals.billing.escrow_client() {
-                    match escrow.submit_earnings_settlement(wallet, *amount).await {
-                        Ok(tx_hash) => {
-                            settlement_state.rentals.billing
-                                .mark_earnings_settled(wallet, *amount).await;
-
-                            // Persist settlement to DB
-                            if let Some(db) = settlement_state.db.as_ref() {
-                                let repo = db.validator_earnings();
-                                if let Err(e) = repo.add_earnings(wallet, -(*amount as i64)).await {
-                                    error!(validator = %wallet, error = %e, "Failed to update DB after settlement");
+                    // Container liveness check: detect crashed containers and suspend billing
+                    let active_sessions = s.rentals.sessions.get_all_active_sessions().await;
+                    for session in &active_sessions {
+                        if let Some(ref container_id) = session.container_id {
+                            match s.rentals.containers.is_container_running(container_id).await {
+                                Ok(false) => {
+                                    warn!(
+                                        rental_id = %session.id,
+                                        container_id = %container_id,
+                                        "Container crashed — suspending rental to stop billing"
+                                    );
+                                    if let Err(e) = s.rentals.sessions.suspend_rental(
+                                        session.id,
+                                        "Container stopped unexpectedly — billing paused"
+                                    ).await {
+                                        error!(rental_id = %session.id, error = %e, "Failed to suspend crashed rental");
+                                    }
                                 }
+                                Err(e) => {
+                                    debug!(container_id = %container_id, error = %e, "Container inspect failed (may have been removed)");
+                                }
+                                Ok(true) => {} // Still running, all good
                             }
-
-                            info!(
-                                validator = %wallet,
-                                amount = amount,
-                                tx_hash = %tx_hash,
-                                "Auto-settled validator earnings on-chain"
-                            );
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                validator = %wallet,
-                                amount = amount,
-                                error = %e,
-                                "Failed to auto-settle earnings (will retry next cycle)"
-                            );
+                    }
+
+                    // Process billing periodically
+                    if last_billing.elapsed() >= billing_interval {
+                        last_billing = Instant::now();
+
+                        if let Err(e) = s.rentals.billing.process_hourly_billing(
+                            &s.rentals.sessions,
+                        ).await {
+                            error!(error = %e, "Failed to process hourly billing");
                         }
                     }
                 }
             }
-        }
-    });
+        });
+    }
+
+    // Task: Update business metrics
+    {
+        let metrics_state = state.clone();
+        spawn_supervised("metrics-update", move || {
+            let s = metrics_state.clone();
+            async move {
+                let interval = Duration::from_secs(30);
+
+                loop {
+                    tokio::time::sleep(interval).await;
+
+                    // Update worker metrics
+                    let workers = s.workers.total_workers().await;
+                    BusinessMetrics::set_active_workers(workers);
+
+                    // Update WebSocket metrics
+                    let ws_workers = s.worker_channels.connection_count().await;
+                    BusinessMetrics::set_websocket_connections(0, ws_workers);
+                }
+            }
+        });
+    }
+
+    // Task: Rate limiter cleanup
+    {
+        let rate_limiter = RateLimitLayer::new();
+        spawn_supervised("rate-limit-cleanup", move || {
+            let rl = rate_limiter.clone();
+            async move {
+                let interval = Duration::from_secs(300);
+
+                loop {
+                    tokio::time::sleep(interval).await;
+                    rl.cleanup().await;
+                }
+            }
+        });
+    }
+
+    // Task: Worker heartbeat timeout check
+    {
+        let heartbeat_state = state.clone();
+        spawn_supervised("heartbeat-check", move || {
+            let s = heartbeat_state.clone();
+            async move {
+                let timeout_secs = CONFIG.worker.heartbeat_timeout_secs;
+                let check_interval = Duration::from_secs(30);
+
+                loop {
+                    tokio::time::sleep(check_interval).await;
+
+                    // Mark workers offline if no heartbeat within timeout
+                    let stale_count = s.workers.mark_stale_workers_offline(timeout_secs).await;
+                    if stale_count > 0 {
+                        tracing::warn!(count = stale_count, timeout_secs = timeout_secs, "Marked stale workers offline");
+                    }
+                }
+            }
+        });
+    }
+
+    // Task: Expire overdue proof jobs
+    {
+        let expiry_state = state.clone();
+        spawn_supervised("job-expiry", move || {
+            let s = expiry_state.clone();
+            async move {
+                let check_interval = Duration::from_secs(15);
+
+                loop {
+                    tokio::time::sleep(check_interval).await;
+
+                    let expired = {
+                        let mut proofs = s.proofs.write().await;
+                        proofs.expire_overdue_jobs()
+                    };
+
+                    for (job_id, worker_id) in &expired {
+                        tracing::warn!(
+                            job_id = %job_id,
+                            worker_id = ?worker_id,
+                            "Expired overdue proof job"
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    // Task: Auto-settle validator earnings on-chain (every 5 minutes)
+    {
+        let settlement_state = state.clone();
+        spawn_supervised("auto-settlement", move || {
+            let s = settlement_state.clone();
+            async move {
+                let interval = Duration::from_secs(300);
+                let min_settlement_sage: u64 = 50;
+
+                loop {
+                    tokio::time::sleep(interval).await;
+
+                    // Only attempt if on-chain escrow is configured
+                    if !s.rentals.billing.is_on_chain_enabled() {
+                        continue;
+                    }
+
+                    let settleable = s.rentals.billing
+                        .get_settleable_validators(min_settlement_sage).await;
+
+                    if settleable.is_empty() {
+                        continue;
+                    }
+
+                    info!(
+                        count = settleable.len(),
+                        "Auto-settlement: found validators with pending earnings"
+                    );
+
+                    for (wallet, amount) in &settleable {
+                        if let Some(escrow) = s.rentals.billing.escrow_client() {
+                            match escrow.submit_earnings_settlement(wallet, *amount).await {
+                                Ok(tx_hash) => {
+                                    s.rentals.billing
+                                        .mark_earnings_settled(wallet, *amount).await;
+
+                                    // Persist settlement to DB
+                                    if let Some(db) = s.db.as_ref() {
+                                        let repo = db.validator_earnings();
+                                        if let Err(e) = repo.add_earnings(wallet, -(*amount as i64)).await {
+                                            error!(validator = %wallet, error = %e, "Failed to update DB after settlement");
+                                        }
+                                    }
+
+                                    info!(
+                                        validator = %wallet,
+                                        amount = amount,
+                                        tx_hash = %tx_hash,
+                                        "Auto-settled validator earnings on-chain"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        validator = %wallet,
+                                        amount = amount,
+                                        error = %e,
+                                        "Failed to auto-settle earnings (will retry next cycle)"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // Task: Handle rental suspensions (insufficient funds, billing failures)
+    // Note: This task uses an mpsc Receiver which is not Clone, so it can't use spawn_supervised.
+    // If it panics, the channel closes and the error is logged.
     if let Some(mut rx) = suspension_rx {
         let suspension_state = state.clone();
         tokio::spawn(async move {
@@ -576,7 +708,12 @@ fn spawn_background_tasks(
                     "Rental suspended successfully - awaiting funds or manual resume"
                 );
             }
+
+            // Channel closed — sender was dropped. This should not happen during normal operation.
+            error!("Suspension channel closed unexpectedly — rental suspensions will no longer be processed. This is a bug.");
         });
+    } else {
+        warn!("No suspension channel available — rental suspensions will not be processed");
     }
 }
 

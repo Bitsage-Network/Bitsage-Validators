@@ -138,8 +138,8 @@ function generateNonce(): string {
     const crypto = require('crypto');
     return '0x' + crypto.randomBytes(32).toString('hex');
   } catch {
-    // Last resort — should never happen in Node.js
-    return '0x' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+    // No secure random source — refuse to generate weak nonce
+    throw new Error('Secure random source not available — cannot generate cryptographic nonce');
   }
 }
 
@@ -258,23 +258,15 @@ export async function verifyEthereumSignature(
 
 /**
  * Compute EIP-712 message hash
+ *
+ * EIP-712 requires Keccak256 (not Poseidon). Without ethers.js or viem,
+ * we cannot correctly compute this hash. Returning a wrong hash would
+ * silently bypass signature verification.
  */
-function computeEIP712Hash(typedData: ReturnType<typeof buildEIP712TypedData>): string {
-  // Implement EIP-712 hash computation
-  // This is a simplified version - in production use ethers or viem
-
-  const domainSeparator = hash.computePoseidonHashOnElements([
-    '0x' + Buffer.from('EIP712Domain').toString('hex'),
-    '0x' + Buffer.from(typedData.domain.name).toString('hex'),
-    '0x' + Buffer.from(typedData.domain.version).toString('hex'),
-    typedData.domain.chainId.toString(),
-  ]);
-
-  const messageHash = hash.computePoseidonHashOnElements(
-    Object.values(typedData.message).map(v => v?.toString() || '0x0')
+function computeEIP712Hash(_typedData: ReturnType<typeof buildEIP712TypedData>): string {
+  throw new Error(
+    'EIP-712 hash computation requires ethers.js or viem — install one to enable EVM wallet verification'
   );
-
-  return hash.computePoseidonHash(domainSeparator, messageHash);
 }
 
 /**
@@ -307,40 +299,49 @@ export async function verifyStarknetSignature(
     // Build typed data for verification context
     const starkTypedData = buildStarknetTypedData(message, chainId);
 
-    // Compute SNIP-12 message hash (used for on-chain verification)
-    const _messageHash = typedData.getMessageHash(starkTypedData, expectedAddress);
-    void _messageHash; // Suppress unused warning - hash is verified on-chain
+    // Compute SNIP-12 message hash for verification
+    const messageHash = typedData.getMessageHash(starkTypedData, expectedAddress);
 
     // Parse signature
     const sigParts = signature.signature.split(',').map(s => s.trim());
 
     // Starknet signatures are [r, s] as hex strings
-    // For wallet-agnostic verification, we'd call the account's is_valid_signature
-    // Here we do basic format validation - real verification happens on-chain
     if (sigParts.length < 2) {
-      console.error('Invalid Starknet signature format');
       return false;
     }
 
-    // Verify the signature is well-formed (basic validation)
     const r = sigParts[0];
     const s = sigParts[1];
 
-    // Check signature parts are valid hex
-    const isValidFormat = /^0x[a-fA-F0-9]+$/.test(r) && /^0x[a-fA-F0-9]+$/.test(s);
-    if (!isValidFormat) {
-      // Try without 0x prefix
-      const isValidWithoutPrefix = /^[a-fA-F0-9]+$/.test(r) && /^[a-fA-F0-9]+$/.test(s);
-      if (!isValidWithoutPrefix) {
-        console.error('Starknet signature format invalid');
+    // Validate hex format
+    const hexPattern = /^0x[a-fA-F0-9]+$/;
+    const bareHexPattern = /^[a-fA-F0-9]+$/;
+    if (!(hexPattern.test(r) || bareHexPattern.test(r)) ||
+        !(hexPattern.test(s) || bareHexPattern.test(s))) {
+      return false;
+    }
+
+    // Cryptographic verification using STARK curve when publicKey is available.
+    // For account-abstracted wallets (multisig, etc.), on-chain is_valid_signature
+    // is the definitive check — this provides a client-side pre-check.
+    if (signature.publicKey) {
+      try {
+        const fullSig = new ec.starkCurve.Signature(
+          BigInt(r.startsWith('0x') ? r : '0x' + r),
+          BigInt(s.startsWith('0x') ? s : '0x' + s),
+        );
+        const isValid = ec.starkCurve.verify(fullSig, messageHash, signature.publicKey);
+        if (!isValid) {
+          return false;
+        }
+      } catch {
+        // Signature verification threw — treat as invalid
         return false;
       }
     }
 
-    // Note: Full cryptographic verification should call the account contract's
-    // is_valid_signature method. This basic check confirms format validity.
-    // The session manager contract will do full verification on-chain.
-    console.log('Starknet signature format valid, on-chain verification required');
+    // Format valid (and curve-verified if publicKey was provided).
+    // Final authoritative check happens on-chain via the session manager contract.
     return true;
   } catch (error) {
     console.error('Starknet signature verification failed:', error);

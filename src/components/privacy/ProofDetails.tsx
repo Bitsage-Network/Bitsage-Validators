@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 
 interface ProofDetailsProps {
   // Pedersen commitment
@@ -244,7 +245,7 @@ export function ProofDetails({
                   <span>Client-side ZK proving (no trusted setup)</span>
                 </div>
                 <a
-                  href={`https://sepolia.starkscan.co/tx/${txHash}`}
+                  href={`${getExplorerUrl('tx')}/${txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-sm text-brand-400 hover:text-brand-300 transition-colors"
