@@ -359,8 +359,10 @@ impl BillingEngine {
             updated_at: Utc::now(),
         });
 
-        balance.total_deposited += amount;
-        balance.available += amount;
+        balance.total_deposited = balance.total_deposited.checked_add(amount)
+            .ok_or_else(|| BillingError::InvalidAmount("Deposit would overflow total_deposited".to_string()))?;
+        balance.available = balance.available.checked_add(amount)
+            .ok_or_else(|| BillingError::InvalidAmount("Deposit would overflow available balance".to_string()))?;
         balance.updated_at = Utc::now();
 
         info!(
@@ -440,7 +442,7 @@ impl BillingEngine {
         }
 
         balance.available -= amount;
-        balance.reserved += amount;
+        balance.reserved = balance.reserved.saturating_add(amount);
         balance.updated_at = Utc::now();
 
         // Track reservation
@@ -472,7 +474,7 @@ impl BillingEngine {
         if let Some(info) = reservation {
             let mut balances = self.balances.write().await;
             if let Some(balance) = balances.get_mut(&info.wallet) {
-                balance.available += info.amount;
+                balance.available = balance.available.saturating_add(info.amount);
                 balance.reserved = balance.reserved.saturating_sub(info.amount);
                 balance.updated_at = Utc::now();
 
@@ -498,7 +500,23 @@ impl BillingEngine {
         rental: &RentalSession,
         hours: f64,
     ) -> Result<BillingRecord, BillingError> {
-        let amount = (rental.rate_sage_per_hour as f64 * hours) as u64;
+        // Guard against negative or absurdly large hours values
+        if hours <= 0.0 || hours > 744.0 {
+            return Err(BillingError::InvalidAmount(
+                format!("Invalid billing hours: {} (must be 0 < hours <= 744)", hours),
+            ));
+        }
+
+        // Use checked arithmetic to prevent overflow
+        let amount = {
+            let raw = (rental.rate_sage_per_hour as f64) * hours;
+            if raw < 0.0 || raw > u64::MAX as f64 {
+                return Err(BillingError::InvalidAmount(
+                    format!("Billing amount overflow: rate={} hours={}", rental.rate_sage_per_hour, hours),
+                ));
+            }
+            raw as u64
+        };
 
         if amount == 0 {
             return Err(BillingError::InvalidAmount("Charge amount is 0".to_string()));
@@ -525,7 +543,7 @@ impl BillingEngine {
             let mut balances = self.balances.write().await;
             if let Some(balance) = balances.get_mut(&rental.tenant_wallet) {
                 balance.reserved = balance.reserved.saturating_sub(amount);
-                balance.total_spent += amount;
+                balance.total_spent = balance.total_spent.saturating_add(amount);
                 balance.updated_at = Utc::now();
             }
         }
@@ -543,8 +561,8 @@ impl BillingEngine {
                     last_earned_at: None,
                 }
             });
-            validator.total_earned += amount;
-            validator.available += amount;
+            validator.total_earned = validator.total_earned.saturating_add(amount);
+            validator.available = validator.available.saturating_add(amount);
             validator.last_earned_at = Some(Utc::now());
         }
 
@@ -587,7 +605,16 @@ impl BillingEngine {
             return Ok(0);
         }
 
-        let amount = (rental.rate_sage_per_hour as f64 * hours) as u64;
+        // Cap at 744 hours (31 days) to prevent overflow from clock skew
+        let hours = hours.min(744.0);
+        let raw = (rental.rate_sage_per_hour as f64) * hours;
+        let amount = if raw < 0.0 || raw > u64::MAX as f64 {
+            return Err(BillingError::InvalidAmount(
+                format!("Settlement amount overflow: rate={} hours={}", rental.rate_sage_per_hour, hours),
+            ));
+        } else {
+            raw as u64
+        };
 
         // Release remaining reservation
         let reservation = {
@@ -605,9 +632,9 @@ impl BillingEngine {
                 if let Some(balance) = balances.get_mut(&rental.tenant_wallet) {
                     // Refund unused reservation
                     let refund = info.amount.saturating_sub(charge);
-                    balance.available += refund;
+                    balance.available = balance.available.saturating_add(refund);
                     balance.reserved = balance.reserved.saturating_sub(info.amount);
-                    balance.total_spent += charge;
+                    balance.total_spent = balance.total_spent.saturating_add(charge);
                     balance.updated_at = Utc::now();
                 }
             }
@@ -616,8 +643,8 @@ impl BillingEngine {
             if charge > 0 {
                 let mut earnings = self.earnings.write().await;
                 if let Some(validator) = earnings.get_mut(&rental.validator_wallet) {
-                    validator.total_earned += charge;
-                    validator.available += charge;
+                    validator.total_earned = validator.total_earned.saturating_add(charge);
+                    validator.available = validator.available.saturating_add(charge);
                     validator.last_earned_at = Some(now);
                     validator.active_rentals = validator.active_rentals.saturating_sub(1);
                 }
@@ -734,9 +761,59 @@ impl BillingEngine {
         ))
     }
 
+    /// Credit SAGE earnings to a validator for completing a proof job
+    pub async fn credit_proof_earnings(&self, validator_wallet: &str, amount: u64, job_id: Uuid) {
+        let mut earnings = self.earnings.write().await;
+        let validator = earnings.entry(validator_wallet.to_string()).or_insert_with(|| {
+            ValidatorEarnings {
+                wallet: validator_wallet.to_string(),
+                total_earned: 0,
+                total_withdrawn: 0,
+                available: 0,
+                active_rentals: 0,
+                last_earned_at: None,
+            }
+        });
+        validator.total_earned = validator.total_earned.saturating_add(amount);
+        validator.available = validator.available.saturating_add(amount);
+        validator.last_earned_at = Some(Utc::now());
+
+        info!(
+            validator = %validator_wallet,
+            amount = amount,
+            job_id = %job_id,
+            total_earned = validator.total_earned,
+            "Credited proof reward to validator"
+        );
+    }
+
     /// Force sync earnings from on-chain and update local state
     pub async fn refresh_validator_earnings(&self, wallet: &str) -> Result<ValidatorEarnings, BillingError> {
         self.sync_earnings(wallet).await
+    }
+
+    /// Get validators with available earnings above a threshold (for auto-settlement)
+    pub async fn get_settleable_validators(&self, min_amount: u64) -> Vec<(String, u64)> {
+        let earnings = self.earnings.read().await;
+        earnings.iter()
+            .filter(|(_, v)| v.available >= min_amount)
+            .map(|(wallet, v)| (wallet.clone(), v.available))
+            .collect()
+    }
+
+    /// Mark earnings as settled (deduct from available after on-chain settlement)
+    pub async fn mark_earnings_settled(&self, wallet: &str, amount: u64) {
+        let mut earnings = self.earnings.write().await;
+        if let Some(validator) = earnings.get_mut(wallet) {
+            validator.available = validator.available.saturating_sub(amount);
+            validator.total_withdrawn = validator.total_withdrawn.saturating_add(amount);
+            info!(
+                validator = %wallet,
+                amount = amount,
+                remaining = validator.available,
+                "Marked earnings as settled"
+            );
+        }
     }
 
     /// Get billing records for a rental
@@ -826,6 +903,12 @@ impl BillingEngine {
         let now = Utc::now();
 
         for rental in active_sessions {
+            // Skip suspended rentals — they should not be billed (container is stopped)
+            if rental.status == super::types::RentalStatus::Suspended {
+                debug!(rental_id = %rental.id, "Skipping billing for suspended rental");
+                continue;
+            }
+
             // Calculate hours since last billing
             let duration = now.signed_duration_since(rental.last_billed_at);
             let hours = duration.num_minutes() as f64 / 60.0;
@@ -848,6 +931,14 @@ impl BillingEngine {
                         amount = record.amount,
                         hours = hours,
                         "Billing charge applied"
+                    );
+                }
+                Err(BillingError::NoReservation(id)) => {
+                    // Expected race: rental was stopped/settled between snapshot and charge.
+                    // Not an error — the reservation was removed by settle_rental().
+                    debug!(
+                        rental_id = %id,
+                        "Skipping billing — reservation already released (rental likely stopped)"
                     );
                 }
                 Err(BillingError::InsufficientFunds { required, available }) => {

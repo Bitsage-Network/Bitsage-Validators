@@ -22,19 +22,18 @@ import {
   Server,
   Loader2,
   Zap,
-  Eye,
-  Info,
-  Sliders,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { EXTERNAL_LINKS } from "@/lib/contracts/addresses";
+import { EXTERNAL_LINKS, CURRENT_NETWORK, NETWORK_CONFIG, getExplorerUrl } from "@/lib/contracts/addresses";
 import {
   buildRegisterValidatorCall,
   buildExitValidatorCall,
   useIsValidator,
   useValidatorInfo,
 } from "@/lib/contracts";
+
+const networkName = NETWORK_CONFIG[CURRENT_NETWORK]?.name || "Starknet Sepolia";
 
 export default function SettingsPage() {
   const { address } = useAccount();
@@ -53,7 +52,6 @@ export default function SettingsPage() {
   });
   const [theme, setTheme] = useState<"dark" | "light" | "system">("dark");
   const [currency, setCurrency] = useState("USD");
-  const [fmdPrecision, setFmdPrecision] = useState(16); // Default 16 bits
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -69,10 +67,6 @@ export default function SettingsPage() {
       const savedCurrency = localStorage.getItem("bitsage_currency");
       if (savedCurrency) {
         setCurrency(savedCurrency);
-      }
-      const savedFmd = localStorage.getItem("bitsage_fmd_precision");
-      if (savedFmd) {
-        setFmdPrecision(parseInt(savedFmd, 10));
       }
     } catch (e) {
       console.error("Failed to load settings from localStorage:", e);
@@ -94,10 +88,6 @@ export default function SettingsPage() {
     localStorage.setItem("bitsage_currency", currency);
   }, [currency]);
 
-  // Save FMD precision to localStorage when changed
-  useEffect(() => {
-    localStorage.setItem("bitsage_fmd_precision", fmdPrecision.toString());
-  }, [fmdPrecision]);
 
   // Validator status from on-chain
   const { data: isValidator, refetch: refetchValidatorStatus } = useIsValidator(address);
@@ -110,7 +100,7 @@ export default function SettingsPage() {
   const handleRegisterValidator = useCallback(async () => {
     if (!address) return;
     try {
-      const registerCall = buildRegisterValidatorCall(address, commissionBps, "0", "sepolia");
+      const registerCall = buildRegisterValidatorCall(address, commissionBps, "0", CURRENT_NETWORK);
       await sendTransaction([registerCall]);
     } catch (err) {
       console.error("Validator registration failed:", err);
@@ -121,7 +111,7 @@ export default function SettingsPage() {
   const handleExitValidator = useCallback(async () => {
     if (!address) return;
     try {
-      const exitCall = buildExitValidatorCall("sepolia");
+      const exitCall = buildExitValidatorCall(CURRENT_NETWORK);
       await sendTransaction([exitCall]);
     } catch (err) {
       console.error("Validator exit failed:", err);
@@ -215,7 +205,7 @@ export default function SettingsPage() {
               </button>
               {!isDemoMode && address && (
                 <a
-                  href={`https://sepolia.starkscan.co/contract/${address}`}
+                  href={`${getExplorerUrl('contract')}/${address}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-3 rounded-xl bg-surface-elevated border border-surface-border hover:border-brand-500/50 transition-colors"
@@ -231,7 +221,7 @@ export default function SettingsPage() {
             <label className="block text-sm text-gray-400 mb-2">Network</label>
             <div className="flex items-center gap-3 p-3 bg-surface-elevated rounded-xl border border-surface-border">
               <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-white">Starknet Sepolia (Testnet)</span>
+              <span className="text-white">{networkName}</span>
             </div>
           </div>
 
@@ -367,7 +357,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-emerald-400">Transaction submitted!</span>
                 <a
-                  href={`https://sepolia.starkscan.co/tx/${regTxHash}`}
+                  href={`${getExplorerUrl('tx')}/${regTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-brand-400 hover:text-brand-300 flex items-center gap-1 text-sm"
@@ -521,112 +511,6 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Privacy Settings - FMD */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.35 }}
-        className="glass-card"
-      >
-        <div className="p-4 border-b border-surface-border">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Eye className="w-5 h-5 text-brand-400" />
-            Privacy Settings
-          </h2>
-        </div>
-        <div className="p-6 space-y-6">
-          {/* FMD Precision */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <label className="block text-sm font-medium text-white">
-                  Fuzzy Message Detection Precision
-                </label>
-                <p className="text-xs text-gray-500 mt-1">
-                  Higher precision = lower false positives, but more processing per transaction
-                </p>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-500/20 text-brand-400 font-medium">
-                <Sliders className="w-4 h-4" />
-                {fmdPrecision} bits
-              </div>
-            </div>
-
-            {/* Slider */}
-            <div className="space-y-3">
-              <input
-                type="range"
-                min="1"
-                max="24"
-                value={fmdPrecision}
-                onChange={(e) => setFmdPrecision(parseInt(e.target.value))}
-                className="w-full h-2 rounded-full bg-surface-elevated appearance-none cursor-pointer accent-brand-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>1 bit (high FP)</span>
-                <span>12 bits</span>
-                <span>24 bits (low FP)</span>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <div className="p-3 rounded-lg bg-surface-elevated border border-surface-border">
-                <p className="text-xs text-gray-400">False Positive Rate</p>
-                <p className="text-lg font-semibold text-white">
-                  {(100 / Math.pow(2, fmdPrecision)).toFixed(fmdPrecision > 10 ? 6 : 4)}%
-                </p>
-              </div>
-              <div className="p-3 rounded-lg bg-surface-elevated border border-surface-border">
-                <p className="text-xs text-gray-400">Recommended For</p>
-                <p className="text-lg font-semibold text-white">
-                  {fmdPrecision <= 8
-                    ? "Low volume"
-                    : fmdPrecision <= 16
-                      ? "Normal use"
-                      : "High volume"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Info Box */}
-          <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30">
-            <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-purple-300">What is FMD?</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Fuzzy Message Detection allows third-party servers to scan for your payments
-                  without learning exactly which transactions are yours. The precision setting
-                  controls the trade-off between privacy and efficiency.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Detection Key Export */}
-          <div className="p-4 rounded-xl bg-surface-elevated border border-surface-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Key className="w-4 h-4 text-brand-400" />
-                  <p className="font-medium text-white">Detection Key</p>
-                </div>
-                <p className="text-sm text-gray-400">
-                  Export for third-party scanning services
-                </p>
-              </div>
-              <button
-                className="px-4 py-2 rounded-lg bg-surface-card border border-surface-border hover:border-brand-500/50 transition-colors text-white text-sm font-medium"
-              >
-                Export Key
-              </button>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
       {/* Links */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -677,8 +561,8 @@ export default function SettingsPage() {
 
       {/* Version */}
       <div className="text-center text-sm text-gray-500">
-        <p>BitSage Network v0.1.0 (Testnet)</p>
-        <p className="mt-1">© 2024 BitSage. All rights reserved.</p>
+        <p>BitSage Network v0.1.0 ({CURRENT_NETWORK === 'mainnet' ? 'Mainnet' : 'Testnet'})</p>
+        <p className="mt-1">© {new Date().getFullYear()} BitSage. All rights reserved.</p>
       </div>
     </div>
   );

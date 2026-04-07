@@ -72,8 +72,12 @@ impl RentalSessionManager {
             "Starting new rental"
         );
 
-        // Calculate required escrow
-        let required_escrow = template.base_rate_sage_per_hour * request.duration_hours as u64;
+        // Calculate required escrow (checked to prevent overflow)
+        let required_escrow = template.base_rate_sage_per_hour
+            .checked_mul(request.duration_hours as u64)
+            .ok_or_else(|| RentalError::BillingError(
+                format!("Escrow calculation overflow: {} SAGE/hr × {} hrs", template.base_rate_sage_per_hour, request.duration_hours)
+            ))?;
 
         // Verify escrow balance
         let balance = billing.get_escrow_balance(&request.tenant_wallet).await?;
@@ -140,11 +144,16 @@ impl RentalSessionManager {
         }
 
         // Reserve funds in escrow
-        billing.reserve_funds(
+        if let Err(e) = billing.reserve_funds(
             &request.tenant_wallet,
             rental_id,
             required_escrow,
-        ).await?;
+        ).await {
+            error!(rental_id = %rental_id, error = %e, "Failed to reserve funds — releasing GPU");
+            gpus.release_gpu(&gpu_allocation).await.ok();
+            self.fail_rental(rental_id, format!("Fund reservation failed: {}", e)).await;
+            return Err(e.into());
+        }
 
         // Provision container
         let container_id = match containers.create_container(rental_id, template, &gpu_allocation).await {
@@ -152,7 +161,8 @@ impl RentalSessionManager {
             Err(e) => {
                 error!(rental_id = %rental_id, error = %e, "Failed to create container");
                 self.fail_rental(rental_id, format!("Container creation failed: {}", e)).await;
-                billing.release_funds(&request.tenant_wallet, rental_id).await?;
+                billing.release_funds(&request.tenant_wallet, rental_id).await.ok();
+                gpus.release_gpu(&gpu_allocation).await.ok();
                 return Err(RentalError::ContainerError(e.to_string()));
             }
         };
@@ -164,7 +174,8 @@ impl RentalSessionManager {
             error!(rental_id = %rental_id, error = %e, "Failed to start container");
             self.fail_rental(rental_id, format!("Container start failed: {}", e)).await;
             containers.remove_container(&container_id).await.ok();
-            billing.release_funds(&request.tenant_wallet, rental_id).await?;
+            billing.release_funds(&request.tenant_wallet, rental_id).await.ok();
+            gpus.release_gpu(&gpu_allocation).await.ok();
             return Err(RentalError::ContainerError(e.to_string()));
         }
 
@@ -276,7 +287,7 @@ impl RentalSessionManager {
         // Update session
         let mut final_session = session.clone();
         final_session.status = RentalStatus::Stopped;
-        final_session.total_spent += final_amount;
+        final_session.total_spent = final_session.total_spent.saturating_add(final_amount);
 
         {
             let mut sessions = self.sessions.write().await;
@@ -312,8 +323,12 @@ impl RentalSessionManager {
             return Err(RentalError::NotActive(rental_id));
         }
 
-        // Calculate additional cost
-        let additional_cost = session.rate_sage_per_hour * additional_hours as u64;
+        // Calculate additional cost (checked to prevent overflow)
+        let additional_cost = session.rate_sage_per_hour
+            .checked_mul(additional_hours as u64)
+            .ok_or_else(|| RentalError::BillingError(
+                format!("Extension cost overflow: {} SAGE/hr × {} hrs", session.rate_sage_per_hour, additional_hours)
+            ))?;
 
         // Verify and reserve additional funds
         let balance = billing.get_escrow_balance(&session.tenant_wallet).await?;
@@ -344,7 +359,9 @@ impl RentalSessionManager {
         );
 
         let sessions = self.sessions.read().await;
-        Ok(sessions.get(&rental_id).unwrap().session.clone())
+        let ctx = sessions.get(&rental_id)
+            .ok_or_else(|| RentalError::NotFound(rental_id))?;
+        Ok(ctx.session.clone())
     }
 
     /// Get rental by ID
@@ -400,7 +417,7 @@ impl RentalSessionManager {
     pub async fn update_total_spent(&self, rental_id: Uuid, amount: u64) {
         let mut sessions = self.sessions.write().await;
         if let Some(ctx) = sessions.get_mut(&rental_id) {
-            ctx.session.total_spent += amount;
+            ctx.session.total_spent = ctx.session.total_spent.saturating_add(amount);
         }
     }
 
@@ -464,7 +481,9 @@ impl RentalSessionManager {
         info!(rental_id = %rental_id, "Rental resumed");
 
         let sessions = self.sessions.read().await;
-        Ok(sessions.get(&rental_id).unwrap().session.clone())
+        let ctx = sessions.get(&rental_id)
+            .ok_or_else(|| RentalError::NotFound(rental_id))?;
+        Ok(ctx.session.clone())
     }
 
     /// Check for expired rentals and handle them

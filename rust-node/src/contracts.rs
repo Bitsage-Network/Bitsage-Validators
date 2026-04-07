@@ -171,7 +171,13 @@ impl ContractAddresses {
 
     /// Get the explorer URL for a contract
     pub fn explorer_url(&self, address: &str) -> String {
-        format!("https://sepolia.starkscan.co/contract/{}", address)
+        let chain_id = std::env::var("STARKNET_CHAIN_ID").unwrap_or_default();
+        let base = if chain_id == "mainnet" || chain_id == "SN_MAIN" {
+            "https://starkscan.co"
+        } else {
+            "https://sepolia.starkscan.co"
+        };
+        format!("{}/contract/{}", base, address)
     }
 }
 

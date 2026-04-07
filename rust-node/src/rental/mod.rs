@@ -351,6 +351,12 @@ impl RentalState {
         result
     }
 
+    /// Get a specific GPU by ID
+    pub async fn get_gpu(&self, gpu_id: &str) -> Option<MarketplaceGpu> {
+        let listings = self.listings.read().await;
+        listings.get(gpu_id).cloned()
+    }
+
     /// Register a GPU on the marketplace
     pub async fn register_gpu(&self, gpu: MarketplaceGpu) {
         // Persist to database if storage is available

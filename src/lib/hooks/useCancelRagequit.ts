@@ -18,10 +18,11 @@ import {
   type AssociationSetInfo,
   type RagequitRequest,
 } from "@/lib/contracts";
+import { CURRENT_NETWORK } from "@/lib/contracts/addresses";
 import { getMerkleProof, type MerkleProof } from "@/lib/crypto/merkle";
 import PrivacyPoolsABI from "@/lib/contracts/abis/PrivacyPools.json";
 
-// Default RPC for Starknet Sepolia
+// RPC URL - must be set via env for production
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo";
 
 interface InclusionSet {
@@ -65,7 +66,7 @@ const KNOWN_INCLUSION_SETS = [
 export function useCancelRagequit(): UseCancelRagequitResult {
   const { address } = useAccount();
   const { sendAsync } = useSendTransaction({});
-  const addresses = getContractAddresses("sepolia");
+  const addresses = getContractAddresses(CURRENT_NETWORK);
 
   // State
   const [isLoading, setIsLoading] = useState(false);
@@ -222,32 +223,42 @@ export function useCancelRagequit(): UseCancelRagequitResult {
     }
 
     // Fetch leaves from contract (this is simplified - production would use events or proof service)
-    // For demo purposes, we'll create a minimal proof
     const leafBigint = BigInt(commitment);
-    const rootBigint = BigInt(selectedSet.root);
 
-    // Generate a minimal valid proof structure
-    // In production, this would use getMerkleProof with actual leaves
+    // Fetch real Merkle proof from the proof service / indexer
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3030";
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/privacy/asp-proof/${setId}/${commitment}`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.found) {
+          const proof: MerkleProof = {
+            leaf: leafBigint,
+            leafIndex: data.leaf_index,
+            pathElements: data.siblings.map((s: string) => BigInt(s)),
+            pathIndices: data.path_indices,
+            root: BigInt(data.root),
+          };
+          return merkleProofToLeanIMT(proof, selectedSet.memberCount);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch proof from indexer, building from contract data:", e);
+    }
+
+    // Fallback: build minimal proof structure (contract will verify)
+    const rootBigint = BigInt(selectedSet.root);
     const proof: MerkleProof = {
       leaf: leafBigint,
       leafIndex: 0,
-      pathElements: [], // Will be populated from contract
+      pathElements: [],
       pathIndices: [],
       root: rootBigint,
     };
-
-    // Try to fetch real proof from API or generate from leaves
-    try {
-      // In production: call proof service or fetch leaves
-      // const leaves = await fetchLeavesFromContract(...);
-      // proof = await getMerkleProof(leafIndex, leaves);
-
-      // For now, return the structure (contract will verify)
-      return merkleProofToLeanIMT(proof, selectedSet.memberCount);
-    } catch (e) {
-      console.warn("Could not generate full proof, using minimal structure:", e);
-      return merkleProofToLeanIMT(proof, selectedSet.memberCount);
-    }
+    return merkleProofToLeanIMT(proof, selectedSet.memberCount);
   }, [inclusionSets]);
 
   /**

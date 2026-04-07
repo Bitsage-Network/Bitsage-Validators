@@ -27,6 +27,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useConfidentialTransfer, ASSET_IDS, type AssetId } from "@/lib/hooks/useConfidentialTransfer";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 import { useAccount } from "@starknet-react/core";
 
 // Asset display config
@@ -519,7 +520,7 @@ export function ConfidentialWallet() {
                 </div>
                 {txResult.hash && (
                   <a
-                    href={`https://sepolia.starkscan.co/tx/${txResult.hash}`}
+                    href={`${getExplorerUrl('tx')}/${txResult.hash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-purple-400 hover:text-purple-300 mt-1 inline-flex items-center gap-1"

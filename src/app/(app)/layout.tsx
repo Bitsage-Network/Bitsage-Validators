@@ -9,6 +9,7 @@ import { FadeTransition } from "@/components/layout/PageTransition";
 import { EnvValidator } from "@/components/EnvValidator";
 import { WebSocketProvider } from "@/lib/providers/WebSocketProvider";
 import { ToastProvider } from "@/lib/providers/ToastProvider";
+import { NotificationProvider } from "@/lib/notifications";
 import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
 import { KeyboardShortcutsModal, FloatingHelpButton } from "@/components/help/KeyboardShortcutsModal";
 import { CommandPalette, useCommandPalette } from "@/components/ui/CommandPalette";
@@ -16,6 +17,7 @@ import { useGlobalShortcuts } from "@/lib/hooks/useKeyboardShortcuts";
 import { Loader2, FlaskConical, X, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { setApiWalletAddress, setApiWalletSigner } from "@/lib/api/client";
 
 // Clear wallet cookie on disconnect
 function clearWalletCookie() {
@@ -29,7 +31,7 @@ export default function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { address, isConnecting, isReconnecting } = useAccount();
+  const { address, account, isConnecting, isReconnecting } = useAccount();
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -55,6 +57,39 @@ export default function AppLayout({
     const timer = setTimeout(() => setReady(true), 300);
     return () => clearTimeout(timer);
   }, []);
+
+  // Sync wallet address and signer to API client
+  useEffect(() => {
+    setApiWalletAddress(address ?? null);
+
+    if (address && account) {
+      setApiWalletSigner(async (messageHash: string) => {
+        const sig = await account.signMessage({
+          types: {
+            StarkNetDomain: [
+              { name: "name", type: "felt" },
+            ],
+            Message: [
+              { name: "hash", type: "felt" },
+            ],
+          },
+          primaryType: "Message",
+          domain: { name: "BitSage" },
+          message: { hash: messageHash },
+        });
+        // signMessage returns Signature which is string[] — [r, s]
+        const sigArray = Array.isArray(sig) ? sig : [sig];
+        return { r: sigArray[0] || "0x0", s: sigArray[1] || "0x0" };
+      });
+    } else {
+      setApiWalletSigner(null);
+    }
+
+    return () => {
+      setApiWalletAddress(null);
+      setApiWalletSigner(null);
+    };
+  }, [address, account]);
 
   // Redirect when disconnected (after ready)
   useEffect(() => {
@@ -85,6 +120,7 @@ export default function AppLayout({
 
   const content = (
     <ToastProvider position="top-right">
+      <NotificationProvider>
           {loadingOverlay}
           <div className="min-h-screen bg-surface-dark bg-grid">
             {/* Global connection status banner */}
@@ -160,6 +196,7 @@ export default function AppLayout({
               onClose={commandPalette.close}
             />
           </div>
+      </NotificationProvider>
     </ToastProvider>
   );
 

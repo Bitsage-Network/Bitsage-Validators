@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useKeyboardShortcuts } from "@/lib/hooks/useKeyboardShortcuts";
+import { EXTERNAL_LINKS } from "@/lib/contracts/addresses";
 
 interface CommandItem {
   id: string;
@@ -203,7 +204,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       label: "Open Block Explorer",
       description: "View on Starkscan",
       icon: ExternalLink,
-      action: () => { window.open("https://sepolia.starkscan.co", "_blank"); onClose(); },
+      action: () => { window.open(EXTERNAL_LINKS.starkscan, "_blank"); onClose(); },
       keywords: ["blockchain", "transactions"],
       category: "external",
     },

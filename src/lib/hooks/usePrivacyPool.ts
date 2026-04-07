@@ -151,8 +151,8 @@ const PRIVACY_POOLS_ADDRESS = (process.env.NEXT_PUBLIC_PRIVACY_POOLS_ADDRESS || 
 // Asset IDs
 const ASSET_SAGE = "0x0"; // SAGE token
 
-// RPC URL for fetching transaction receipts
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "https://rpc.starknet-testnet.lava.build";
+// RPC URL for fetching transaction receipts - must be set via env for production
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo";
 
 // PPDepositExecuted event selector (keccak hash of event name)
 const PP_DEPOSIT_EVENT_KEY = hash.getSelectorFromName("PPDepositExecuted");
@@ -162,7 +162,7 @@ const PP_DEPOSIT_EVENT_KEY = hash.getSelectorFromName("PPDepositExecuted");
  * The contract emits PPDepositExecuted event with global_index
  */
 // API base URL for backend requests
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3030";
 
 /**
  * Fetch Merkle proof from backend for a deposit commitment
@@ -237,7 +237,7 @@ async function fetchLeafIndexFromReceipt(
           if (eventCommitment && eventCommitment.toLowerCase() === commitment.toLowerCase()) {
             // Found our deposit event - global_index is in data[2]
             const globalIndex = event.data[2];
-            console.log("Found deposit event, leafIndex:", globalIndex);
+            // leafIndex found (sensitive — not logged in production)
             return parseInt(globalIndex, 16);
           }
         }
@@ -408,7 +408,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
   // Auto-unlock keys if they exist when the wallet is connected
   useEffect(() => {
     if (hasKeys && !isKeysDerived && storedPublicKey) {
-      console.log("Keys exist but not unlocked, will unlock on first privacy action");
+      // Keys exist, will unlock on first privacy action
       // Set the stored public key for display purposes, but privateKey remains null
       // Full unlock happens when derivePrivacyKeys() is called
       setPublicKey(storedPublicKey);
@@ -417,21 +417,18 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
 
   // Derive privacy keys - initializes keys if needed, then unlocks them
   const derivePrivacyKeys = useCallback(async () => {
-    console.log("Deriving privacy keys...");
+    // Do not log key derivation operations
 
     try {
       // If keys don't exist, initialize them first
       if (!hasKeys) {
-        console.log("No keys found, initializing...");
         await initializeKeys();
       }
 
       // Now unlock the keys to get the private key
-      console.log("Unlocking keys...");
       const keyPair = await unlockKeys();
 
       if (keyPair) {
-        console.log("Keys unlocked successfully");
         setPublicKey(keyPair.publicKey);
         setPrivateKey(keyPair.privateKey);
         setIsKeysDerived(true);
@@ -504,7 +501,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
       let currentPrivateKey = privateKey;
 
       if (!currentPublicKey || !currentPrivateKey) {
-        console.log("Keys not unlocked, unlocking now...");
+        // Keys not unlocked — unlocking now
 
         // Initialize keys if they don't exist
         if (!hasKeys) {
@@ -525,7 +522,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         setPrivateKey(currentPrivateKey);
         setIsKeysDerived(true);
 
-        console.log("Keys unlocked and ready");
+        // Keys unlocked and ready
       }
 
       const amountWei = toWei(denomination);
@@ -547,7 +544,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
       });
 
       try {
-        console.log("🔐 [Proving] Generating privacy note for amount:", denomination, "SAGE");
+        // NEVER log deposit amounts
 
         // Create Pedersen commitment note
         // H(secret || nullifier_seed || amount || asset_id)
@@ -580,7 +577,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
 
         // Calculate proving time
         const provingTimeMs = Math.round(performance.now() - provingStart);
-        console.log(`✅ [Proving] Complete in ${provingTimeMs}ms`);
+        // Proving complete — do not log timing
 
         // ==============================
         // PHASE 2: SENDING (submit to network)
@@ -594,7 +591,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           isPending: true,
         }));
 
-        console.log("📤 [Sending] Building transaction...");
+        // Building transaction — do not log
 
         // ==============================
         // PRIVACY-PRESERVING APPROVAL
@@ -616,20 +613,20 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         let needsApproval = true;
         try {
           const provider = new RpcProvider({
-            nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/CrJvEXftXMfkXvyJfunp3mQVEfDU2D81",
+            nodeUrl: RPC_URL,
           });
           const tokenContract = new Contract(ERC20_ABI, SAGE_TOKEN_ADDRESS, provider);
           const allowanceResult = await tokenContract.allowance(address, PRIVACY_POOLS_ADDRESS);
 
           // Convert u256 result to bigint
           const currentAllowance = BigInt(allowanceResult.toString());
-          console.log("📋 [Privacy] Current allowance:", currentAllowance.toString());
+          // Do not log allowance values
 
           // Only approve if current allowance is less than needed
           needsApproval = currentAllowance < amountWei;
 
           if (!needsApproval) {
-            console.log("✅ [Privacy] Sufficient allowance - skipping approve call (better privacy!)");
+            // Sufficient allowance — skipping approve
           }
         } catch (err) {
           console.warn("⚠️ [Privacy] Could not check allowance, will include approve:", err);
@@ -637,7 +634,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         }
 
         if (needsApproval) {
-          console.log("📋 [Privacy] Using blanket approval (1M SAGE) to hide deposit amount");
+          // Using blanket approval to hide deposit amount
           const approveCall = {
             contractAddress: SAGE_TOKEN_ADDRESS,
             entrypoint: "approve",
@@ -654,12 +651,9 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // Step 6: Call pp_deposit on Privacy Pools contract
         // Passes both encrypted amount (for privacy) and plaintext amount (for transfer)
         // ==============================
-        console.log("Building pp_deposit call:", {
-          commitment: commitmentFelt,
-          amount_commitment: amountCommitment,
-          asset_id: ASSET_SAGE,
-          amount: amountWei.toString(),
-        });
+        if (process.env.NODE_ENV === "development") {
+          // Building pp_deposit call
+        }
 
         // Build raw calldata to ensure exact serialization
         // pp_deposit params:
@@ -688,8 +682,10 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           ...rangeProofData,                        // 8-9. Span elements
         ];
 
-        console.log("Raw pp_deposit calldata:", rawCalldata);
-        console.log("u256 - low:", amountLow.toString(), "high:", amountHigh.toString());
+        // Sensitive calldata — only log in development
+        if (process.env.NODE_ENV === "development") {
+          console.log("pp_deposit calldata length:", rawCalldata.length);
+        }
 
         const depositCall = {
           contractAddress: PRIVACY_POOLS_ADDRESS,
@@ -702,13 +698,9 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // Note: The blanket approval hides the actual deposit amount from the approve call
         // However, the pp_deposit calldata still contains the amount (needed for transferFrom)
         // For maximum privacy, use fixed denominations so amounts are predictable
-        console.log("📤 [Sending] Submitting to network...");
-        console.log("📋 [Privacy] Calls in transaction:", calls.length,
-          calls.length > 1 ? "(blanket approve + deposit)" : "(deposit only)");
+        // Do not log transaction details or call structure
         const result = await account.execute(calls);
         const txHash = result.transaction_hash;
-
-        console.log("✅ [Sending] Transaction submitted:", txHash);
 
         // ==============================
         // PHASE 3: CONFIRMING (wait for L2 confirmation)
@@ -720,7 +712,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           proofProgress: 75,
         }));
 
-        console.log("⏳ [Confirming] Waiting for L2 confirmation...");
+        // Waiting for L2 confirmation
 
         // Wait for transaction confirmation
         const provider = new RpcProvider({ nodeUrl: RPC_URL });
@@ -735,7 +727,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           throw new Error(`Transaction failed: ${executionStatus}`);
         }
 
-        console.log("✅ [Confirming] Transaction confirmed:", finalityStatus);
+        // Transaction confirmed — do not log status
 
         // Store note locally
         const privacyNote: PrivacyNote = {
@@ -776,7 +768,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         fetchLeafIndexFromReceipt(txHash, commitmentFelt).then(async (leafIndex) => {
           if (leafIndex !== null) {
             await updateNoteLeafIndex(commitmentFelt, leafIndex);
-            console.log("Note leafIndex updated:", leafIndex);
+            // leafIndex updated (sensitive — not logged)
             // Update proofData with actual leafIndex
             setDepositState((prev) => ({
               ...prev,
@@ -788,7 +780,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           console.error("Error fetching leafIndex:", err);
         });
 
-        console.log("🎉 [Confirmed] Deposit complete!");
+        // Deposit complete
 
         await refreshStats();
         return txHash;
@@ -827,7 +819,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
       let currentPrivateKey = privateKey;
 
       if (!currentPrivateKey) {
-        console.log("Keys not unlocked for withdrawal, unlocking now...");
+        // Keys not unlocked for withdrawal — unlocking
 
         if (!hasKeys) {
           await initializeKeys();
@@ -845,7 +837,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         setPrivateKey(currentPrivateKey);
         setIsKeysDerived(true);
 
-        console.log("Keys unlocked for withdrawal");
+        // Keys unlocked for withdrawal — do not log
       }
 
       const recipientAddress = recipient || address;
@@ -874,8 +866,27 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // NOT H(nullifier_secret, commitment)!
         // The leaf_index is returned by pp_deposit and stored in the note
         if (note.leafIndex === 0 && note.depositTxHash) {
-          // TODO: Fetch leafIndex from transaction receipt or indexer
-          console.warn("Warning: leafIndex is 0, may need to fetch from chain");
+          // Attempt to recover leafIndex from the deposit transaction receipt
+          console.warn("leafIndex is 0, attempting recovery from chain...");
+          const recoveredIndex = await fetchLeafIndexFromReceipt(note.depositTxHash, note.commitment);
+          if (recoveredIndex !== null) {
+            note.leafIndex = recoveredIndex;
+            await updateNoteLeafIndex(note.commitment, recoveredIndex);
+            // leafIndex recovered (sensitive — not logged)
+          } else {
+            // Try fetching from the Merkle proof backend as fallback
+            const merkleData = await fetchMerkleProof(note.commitment);
+            if (merkleData && merkleData.leafIndex > 0) {
+              note.leafIndex = merkleData.leafIndex;
+              await updateNoteLeafIndex(note.commitment, merkleData.leafIndex);
+              // leafIndex recovered from indexer (sensitive — not logged)
+            } else {
+              throw new Error(
+                "Cannot determine deposit position (leafIndex). " +
+                "The deposit may not be indexed yet. Please try again later."
+              );
+            }
+          }
         }
 
         const nullifier = deriveNullifier(
@@ -883,7 +894,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           note.leafIndex
         );
 
-        console.log("Withdrawal nullifier:", nullifier, "for leafIndex:", note.leafIndex);
+        // Nullifier computed (NEVER log — reveals note identity)
 
         // ==============================
         // Step 2: Fetch Merkle proof from backend
@@ -900,11 +911,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           );
         }
 
-        console.log("Merkle proof fetched:", {
-          root: merkleProof.root,
-          siblings: merkleProof.siblings.length,
-          leafIndex: merkleProof.leafIndex,
-        });
+        // NEVER log merkle proof data (root, siblings, leafIndex)
 
         // Convert to contract-expected format
         const globalTreeProof = {
@@ -930,17 +937,40 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         // Build withdrawal proof based on compliance level
         const complianceLevel = complianceOptions?.complianceLevel || "full_privacy";
 
-        // TODO: In production, generate actual ASP membership proofs
-        // For now, we include placeholders that the contract can validate
+        // Determine association set for compliance level
         const associationSetId = complianceLevel === "association_set" && complianceOptions?.selectedASPs?.length
-          ? complianceOptions.selectedASPs[0] // Use first selected ASP
+          ? complianceOptions.selectedASPs[0]
           : null;
+
+        // Fetch ASP membership proof from backend if association set is specified
+        let associationProof = null;
+        if (associationSetId) {
+          try {
+            const aspResponse = await fetch(
+              `${API_BASE_URL}/api/privacy/asp-proof/${associationSetId}/${noteCommitment}`
+            );
+            if (aspResponse.ok) {
+              const aspData = await aspResponse.json();
+              if (aspData.found) {
+                associationProof = {
+                  siblings: aspData.siblings,
+                  path_indices: aspData.path_indices,
+                  leaf: noteCommitment,
+                  root: aspData.root,
+                };
+              }
+            }
+          } catch (aspErr) {
+            console.warn("Could not fetch ASP membership proof:", aspErr);
+            // Continue without proof — contract may reject if required
+          }
+        }
 
         const withdrawalProof = {
           global_tree_proof: globalTreeProof,
           deposit_commitment: noteCommitment,
           association_set_id: associationSetId,
-          association_proof: null, // TODO: Generate actual ASP membership proof
+          association_proof: associationProof,
           exclusion_set_id: null,
           exclusion_proof: null,
           nullifier: "0x" + nullifier.toString(16),
@@ -953,7 +983,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
             : null,
         };
 
-        console.log("Withdrawal proof built with compliance level:", complianceLevel);
+        // Do not log withdrawal proof details
 
         // ==============================
         // Step 4: Submit withdrawal
@@ -964,7 +994,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
           isGeneratingProof: false,
         }));
 
-        console.log("Submitting withdrawal transaction...");
+        // Submitting withdrawal — do not log
 
         const withdrawCall = {
           contractAddress: PRIVACY_POOLS_ADDRESS,
@@ -977,7 +1007,7 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         const result = await account.execute([withdrawCall]);
         const txHash = result.transaction_hash;
 
-        console.log("Withdrawal submitted:", txHash);
+        // Withdrawal submitted — NEVER log tx hash
 
         // Mark note as spent
         await markNoteSpent(noteCommitment, txHash);
@@ -1017,28 +1047,39 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
     }
   }, [address, isKeysDerived, refreshStats]);
 
-  // Ragequit stub functions - actual implementation uses contract calls directly
-  // These are provided for interface compatibility
+  // Ragequit operations - delegates to contract call builders
   const initiateRagequit = useCallback(
     async (depositIndex: number): Promise<string> => {
-      console.warn(
-        "initiateRagequit from usePrivacyPool is a stub. " +
-        "Use buildPrivacyPoolRagequitCall from @/lib/contracts for actual ragequit."
-      );
-      throw new Error("Use buildPrivacyPoolRagequitCall for ragequit operations");
+      if (!account || !address) {
+        throw new Error("Wallet not connected");
+      }
+      if (PRIVACY_POOLS_ADDRESS === "0x0") {
+        throw new Error("Privacy Pools contract not configured");
+      }
+
+      const { buildPrivacyPoolRagequitCall } = await import("@/lib/contracts");
+      const call = buildPrivacyPoolRagequitCall(BigInt(depositIndex));
+      const result = await account.execute([call]);
+      return result.transaction_hash;
     },
-    []
+    [account, address]
   );
 
   const executeRagequit = useCallback(
     async (depositIndex: number): Promise<string> => {
-      console.warn(
-        "executeRagequit from usePrivacyPool is a stub. " +
-        "Use buildExecuteRagequitCall from @/lib/contracts for actual ragequit."
-      );
-      throw new Error("Use buildExecuteRagequitCall for ragequit operations");
+      if (!account || !address) {
+        throw new Error("Wallet not connected");
+      }
+      if (PRIVACY_POOLS_ADDRESS === "0x0") {
+        throw new Error("Privacy Pools contract not configured");
+      }
+
+      const { buildExecuteRagequitCall } = await import("@/lib/contracts");
+      const call = buildExecuteRagequitCall(BigInt(depositIndex));
+      const result = await account.execute([call]);
+      return result.transaction_hash;
     },
-    []
+    [account, address]
   );
 
   // Reset deposit state to idle (for "Deposit Another" flow)

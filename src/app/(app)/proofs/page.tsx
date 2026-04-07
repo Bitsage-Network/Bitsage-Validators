@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 import Link from "next/link";
 import { useAccount } from "@starknet-react/core";
 import { useProofsPageData, useEarningsSummary } from "@/lib/hooks/useApiData";
@@ -802,7 +803,7 @@ export default function ProofsPage() {
                         <div className="col-span-1 flex items-center gap-2 justify-end">
                           {proof.txHash && (
                             <a
-                              href={`https://sepolia.starkscan.co/tx/${proof.txHash}`}
+                              href={`${getExplorerUrl('tx')}/${proof.txHash}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-brand-400 hover:text-brand-300"
@@ -1005,7 +1006,7 @@ export default function ProofsPage() {
                                 )}
                                 {proofTxHash && (
                                   <a
-                                    href={`https://sepolia.starkscan.co/tx/${proofTxHash}`}
+                                    href={`${getExplorerUrl('tx')}/${proofTxHash}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="btn-secondary text-sm flex items-center gap-2"

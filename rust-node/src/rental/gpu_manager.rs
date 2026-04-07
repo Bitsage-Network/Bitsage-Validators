@@ -28,8 +28,12 @@
 //! - 7g.80gb: Full GPU  (Profile ID 0)
 
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, warn, error, debug};
+
+/// Timeout for nvidia-smi commands (driver hangs are common with faulty GPUs)
+const NVIDIA_SMI_TIMEOUT: Duration = Duration::from_secs(15);
 
 use super::types::{GpuAllocation, MigProfile, GpuBackend};
 
@@ -147,6 +151,24 @@ struct AllocationInfo {
     rental_id: Option<uuid::Uuid>,
 }
 
+/// Run nvidia-smi with a timeout to prevent hangs from blocking the system.
+/// Returns the command output or a timeout error.
+async fn nvidia_smi_with_timeout(args: &[&str]) -> Result<std::process::Output, GpuError> {
+    let fut = tokio::process::Command::new("nvidia-smi")
+        .args(args)
+        .output();
+
+    match tokio::time::timeout(NVIDIA_SMI_TIMEOUT, fut).await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(e)) => Err(GpuError::DetectionFailed(format!("nvidia-smi exec failed: {}", e))),
+        Err(_) => Err(GpuError::DetectionFailed(format!(
+            "nvidia-smi timed out after {}s (args: {:?}) — GPU driver may be hung",
+            NVIDIA_SMI_TIMEOUT.as_secs(),
+            args
+        ))),
+    }
+}
+
 impl GpuManager {
     /// Create a new GPU manager
     pub fn new() -> Self {
@@ -160,12 +182,8 @@ impl GpuManager {
     pub async fn initialize(&self) -> Result<(), GpuError> {
         info!("Initializing GPU manager");
 
-        // Run nvidia-smi to detect GPUs
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=uuid,index,name,memory.total", "--format=csv,noheader,nounits"])
-            .output()
-            .await
-            .map_err(|e| GpuError::DetectionFailed(format!("nvidia-smi failed: {}", e)))?;
+        // Run nvidia-smi to detect GPUs (with timeout protection)
+        let output = nvidia_smi_with_timeout(&["--query-gpu=uuid,index,name,memory.total", "--format=csv,noheader,nounits"]).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -179,9 +197,25 @@ impl GpuManager {
             let parts: Vec<&str> = line.split(", ").collect();
             if parts.len() >= 4 {
                 let uuid = parts[0].trim().to_string();
-                let index: u32 = parts[1].trim().parse().unwrap_or(0);
+                let index: u32 = match parts[1].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!(line = %line, "Skipping GPU — failed to parse index");
+                        continue;
+                    }
+                };
                 let model = parts[2].trim().to_string();
-                let vram_mb: u32 = parts[3].trim().parse().unwrap_or(0);
+                let vram_mb: u32 = match parts[3].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!(uuid = %uuid, model = %model, "Skipping GPU — failed to parse VRAM");
+                        continue;
+                    }
+                };
+                if vram_mb == 0 {
+                    warn!(uuid = %uuid, model = %model, "Skipping GPU — reported 0 MB VRAM");
+                    continue;
+                }
                 let vram_gb = vram_mb / 1024;
 
                 // Detect GPU family
@@ -241,14 +275,54 @@ impl GpuManager {
         Ok(())
     }
 
+    /// Refresh GPU state: re-query nvidia-smi for current MIG instances.
+    /// Called periodically to keep the cache in sync with actual hardware state.
+    /// Preserves existing allocation tracking.
+    pub async fn refresh(&self) -> Result<(), GpuError> {
+        debug!("Refreshing GPU state from nvidia-smi");
+
+        // Collect MIG-enabled GPUs that need refresh (read lock only)
+        let mig_gpus: Vec<(String, u32)> = {
+            let gpus = self.gpus.read().await;
+            gpus.values()
+                .filter(|g| g.mig_enabled)
+                .map(|g| (g.uuid.clone(), g.index))
+                .collect()
+        };
+
+        // Refresh MIG instances for each GPU (no lock held during nvidia-smi calls)
+        for (uuid, index) in mig_gpus {
+            if let Ok(instances) = self.get_mig_instances(index).await {
+                let mut gpus = self.gpus.write().await;
+                if let Some(gpu) = gpus.get_mut(&uuid) {
+                    // Preserve allocation state from existing instances
+                    let allocated_gis: HashMap<u32, Option<uuid::Uuid>> = gpu.mig_instances.iter()
+                        .filter(|i| i.allocated)
+                        .map(|i| (i.gi_id, i.rental_id))
+                        .collect();
+
+                    let mut refreshed = instances;
+                    for inst in &mut refreshed {
+                        if let Some(rental_id) = allocated_gis.get(&inst.gi_id) {
+                            inst.allocated = true;
+                            inst.rental_id = *rental_id;
+                        }
+                    }
+
+                    let used_vram: u32 = refreshed.iter().map(|i| i.profile.vram_gb()).sum();
+                    gpu.mig_instances = refreshed;
+                    gpu.available_mig_vram_gb = gpu.vram_gb.saturating_sub(used_vram);
+                }
+            }
+        }
+
+        debug!("GPU state refresh complete");
+        Ok(())
+    }
+
     /// Check if MIG is enabled on a GPU
     async fn is_mig_enabled(&self, gpu_uuid: &str) -> bool {
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args(["-i", gpu_uuid, "--query-gpu=mig.mode.current", "--format=csv,noheader"])
-            .output()
-            .await;
-
-        match output {
+        match nvidia_smi_with_timeout(&["-i", gpu_uuid, "--query-gpu=mig.mode.current", "--format=csv,noheader"]).await {
             Ok(o) if o.status.success() => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 stdout.trim().eq_ignore_ascii_case("enabled")
@@ -262,14 +336,9 @@ impl GpuManager {
     /// Parses output from `nvidia-smi mig -lgi` (list GPU instances)
     /// and `nvidia-smi mig -lci` (list compute instances)
     async fn get_mig_instances(&self, gpu_index: u32) -> Result<Vec<MigInstance>, GpuError> {
-        // List GPU Instances
-        let gi_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-lgi",
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        // List GPU Instances (with timeout)
+        let idx_str = gpu_index.to_string();
+        let gi_output = nvidia_smi_with_timeout(&["mig", "-lgi", "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to list GPU instances: {}", e)))?;
 
         if !gi_output.status.success() {
@@ -311,8 +380,14 @@ impl GpuManager {
                 // Expected: [gpu_idx, "MIG", profile_name, profile_id, instance_id, placement]
                 if parts.len() >= 5 && parts[1] == "MIG" {
                     let profile_name = parts[2];
-                    let profile_id: u32 = parts[3].parse().unwrap_or(0);
-                    let gi_id: u32 = parts[4].parse().unwrap_or(0);
+                    let _profile_id: u32 = match parts[3].parse() {
+                        Ok(v) => v,
+                        Err(_) => { warn!(line = %line, "Skipping MIG instance — failed to parse profile_id"); continue; }
+                    };
+                    let gi_id: u32 = match parts[4].parse() {
+                        Ok(v) => v,
+                        Err(_) => { warn!(line = %line, "Skipping MIG instance — failed to parse GI ID"); continue; }
+                    };
 
                     // Detect profile from name
                     let profile = self.parse_mig_profile_name(profile_name);
@@ -355,14 +430,9 @@ impl GpuManager {
 
     /// Get compute instances for a GPU instance
     async fn get_compute_instances(&self, gpu_index: u32, gi_id: u32) -> Result<Vec<(u32, String)>, GpuError> {
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-lci",
-                "-i", &gpu_index.to_string(),
-                "-gi", &gi_id.to_string(),
-            ])
-            .output()
-            .await
+        let idx_str = gpu_index.to_string();
+        let gi_str = gi_id.to_string();
+        let output = nvidia_smi_with_timeout(&["mig", "-lci", "-i", &idx_str, "-gi", &gi_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to list compute instances: {}", e)))?;
 
         if !output.status.success() {
@@ -402,15 +472,9 @@ impl GpuManager {
     /// MIG UUID format: MIG-<gpu-uuid>/<gi-id>/<ci-id>
     async fn get_mig_device_uuid(&self, gpu_index: u32, gi_id: u32, ci_id: u32) -> Result<String, GpuError> {
         // Method 1: Try nvidia-smi with query for MIG UUID (newer driver versions)
-        // nvidia-smi mig -i <gpu> -gi <gi_id> -ci <ci_id> -lci shows the MIG device details
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-lci",
-                "-i", &gpu_index.to_string(),
-                "-gi", &gi_id.to_string(),
-            ])
-            .output()
-            .await
+        let idx_str = gpu_index.to_string();
+        let gi_str = gi_id.to_string();
+        let output = nvidia_smi_with_timeout(&["mig", "-lci", "-i", &idx_str, "-gi", &gi_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to list compute instances: {}", e)))?;
 
         if output.status.success() {
@@ -446,14 +510,8 @@ impl GpuManager {
 
     /// Get GPU UUID from nvidia-smi
     async fn get_gpu_uuid(&self, gpu_index: u32) -> Result<String, GpuError> {
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "--query-gpu=uuid",
-                "--format=csv,noheader,nounits",
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let idx_str = gpu_index.to_string();
+        let output = nvidia_smi_with_timeout(&["--query-gpu=uuid", "--format=csv,noheader,nounits", "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to get GPU UUID: {}", e)))?;
 
         if !output.status.success() {
@@ -483,10 +541,7 @@ impl GpuManager {
     /// Alternative method that parses the full device listing
     #[allow(dead_code)]
     async fn get_mig_device_uuid_from_listing(&self, gpu_index: u32, gi_id: u32, ci_id: u32) -> Result<String, GpuError> {
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args(["-L"])
-            .output()
-            .await
+        let output = nvidia_smi_with_timeout(&["-L"]).await
             .map_err(|e| GpuError::MigError(format!("Failed to list GPU devices: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -717,14 +772,9 @@ impl GpuManager {
         );
 
         // Step 1: Create GPU Instance (GI)
-        // nvidia-smi mig -cgi <profile_id> -i <gpu_index>
-        let gi_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-cgi", &profile_id.to_string(),
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let profile_str = profile_id.to_string();
+        let idx_str = gpu_index.to_string();
+        let gi_output = nvidia_smi_with_timeout(&["mig", "-cgi", &profile_str, "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to create GPU Instance: {}", e)))?;
 
         if !gi_output.status.success() {
@@ -746,15 +796,8 @@ impl GpuManager {
         info!(gpu_index = gpu_index, gi_id = gi_id, "Created GPU Instance");
 
         // Step 2: Create Compute Instance (CI) on the GPU Instance
-        // nvidia-smi mig -cci -gi <gi_id> -i <gpu_index>
-        let ci_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-cci",
-                "-gi", &gi_id.to_string(),
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let gi_str = gi_id.to_string();
+        let ci_output = nvidia_smi_with_timeout(&["mig", "-cci", "-gi", &gi_str, "-i", &idx_str]).await
             .map_err(|e| {
                 // Try to clean up the GI we just created
                 let _ = self.destroy_mig_instance_sync(gpu_index, gi_id);
@@ -776,7 +819,12 @@ impl GpuManager {
         // Parse CI ID from output
         let ci_stdout = String::from_utf8_lossy(&ci_output.stdout);
         let ci_id = self.parse_created_instance_id(&ci_stdout, "compute instance ID")
-            .unwrap_or(0); // Default to 0 if parsing fails
+            .ok_or_else(|| {
+                error!(gpu_index = gpu_index, gi_id = gi_id, output = %ci_stdout, "Failed to parse CI ID — cleaning up GI");
+                // CI was created (status was success) but we can't parse its ID — destroy the GI to avoid orphans
+                let _ = self.destroy_mig_instance_sync(gpu_index, gi_id);
+                GpuError::MigError("Failed to parse Compute Instance ID from nvidia-smi output".to_string())
+            })?;
 
         info!(
             gpu_index = gpu_index,
@@ -839,15 +887,11 @@ impl GpuManager {
 
     /// Destroy a GPU Instance asynchronously
     async fn destroy_gpu_instance_async(&self, gpu_index: u32, gi_id: u32) -> Result<(), GpuError> {
+        let gi_str = gi_id.to_string();
+        let idx_str = gpu_index.to_string();
+
         // First destroy any compute instances
-        let dci_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-dci",
-                "-gi", &gi_id.to_string(),
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let dci_output = nvidia_smi_with_timeout(&["mig", "-dci", "-gi", &gi_str, "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to destroy Compute Instances: {}", e)))?;
 
         if !dci_output.status.success() {
@@ -859,14 +903,7 @@ impl GpuManager {
         }
 
         // Then destroy the GPU instance
-        let dgi_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-dgi",
-                "-gi", &gi_id.to_string(),
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let dgi_output = nvidia_smi_with_timeout(&["mig", "-dgi", "-gi", &gi_str, "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to destroy GPU Instance: {}", e)))?;
 
         if !dgi_output.status.success() {
@@ -891,15 +928,10 @@ impl GpuManager {
         );
 
         // Destroy compute instance first
-        let dci_output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "mig", "-dci",
-                "-ci", &ci_id.to_string(),
-                "-gi", &gi_id.to_string(),
-                "-i", &gpu_index.to_string(),
-            ])
-            .output()
-            .await
+        let ci_str = ci_id.to_string();
+        let gi_str = gi_id.to_string();
+        let idx_str = gpu_index.to_string();
+        let dci_output = nvidia_smi_with_timeout(&["mig", "-dci", "-ci", &ci_str, "-gi", &gi_str, "-i", &idx_str]).await
             .map_err(|e| GpuError::MigError(format!("Failed to destroy Compute Instance: {}", e)))?;
 
         if !dci_output.status.success() {
@@ -947,10 +979,7 @@ impl GpuManager {
             "Enabling MIG mode - this requires a GPU reset"
         );
 
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args(["-i", gpu_uuid, "-mig", "1"])
-            .output()
-            .await
+        let output = nvidia_smi_with_timeout(&["-i", gpu_uuid, "-mig", "1"]).await
             .map_err(|e| GpuError::MigError(format!("Failed to enable MIG mode: {}", e)))?;
 
         if !output.status.success() {
@@ -972,10 +1001,7 @@ impl GpuManager {
             "Disabling MIG mode - this requires a GPU reset"
         );
 
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args(["-i", gpu_uuid, "-mig", "0"])
-            .output()
-            .await
+        let output = nvidia_smi_with_timeout(&["-i", gpu_uuid, "-mig", "0"]).await
             .map_err(|e| GpuError::MigError(format!("Failed to disable MIG mode: {}", e)))?;
 
         if !output.status.success() {
@@ -1009,15 +1035,30 @@ impl GpuManager {
                     GpuAllocation::Exclusive { .. } => {
                         gpu.fully_allocated = false;
                     }
-                    GpuAllocation::Mig { gi_id, ci_id, .. } => {
-                        // Mark MIG instance as available
-                        for instance in &mut gpu.mig_instances {
-                            if instance.gi_id == *gi_id && instance.ci_id == *ci_id {
-                                instance.allocated = false;
-                                instance.rental_id = None;
-                                break;
-                            }
+                    GpuAllocation::Mig { gpu_index, gi_id, ci_id, profile, .. } => {
+                        // Remove the MIG instance from tracking
+                        gpu.mig_instances.retain(|i| !(i.gi_id == *gi_id && i.ci_id == *ci_id));
+                        // Restore available VRAM
+                        gpu.available_mig_vram_gb = gpu.available_mig_vram_gb.saturating_add(profile.vram_gb());
+
+                        // Destroy the actual MIG allocation (CI + GI) on the hardware
+                        let gpu_idx = *gpu_index;
+                        let gi = *gi_id;
+                        let ci = *ci_id;
+                        // Drop locks before async nvidia-smi call
+                        drop(gpus);
+                        drop(allocations);
+                        if let Err(e) = self.destroy_mig_allocation(gpu_idx, gi, ci).await {
+                            error!(
+                                gpu_index = gpu_idx,
+                                gi_id = gi,
+                                ci_id = ci,
+                                error = %e,
+                                "Failed to destroy MIG allocation on hardware (resource leak)"
+                            );
                         }
+                        info!(allocation_id = %allocation_id, "GPU MIG instance released and destroyed");
+                        return Ok(());
                     }
                 }
             }
@@ -1060,14 +1101,11 @@ impl GpuManager {
 
     /// Get GPU utilization metrics
     pub async fn get_gpu_metrics(&self, gpu_uuid: &str) -> Result<GpuMetrics, GpuError> {
-        let output = tokio::process::Command::new("nvidia-smi")
-            .args([
-                "--query-gpu=utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu",
-                "--format=csv,noheader,nounits",
-                "-i", gpu_uuid,
-            ])
-            .output()
-            .await
+        let output = nvidia_smi_with_timeout(&[
+            "--query-gpu=utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu",
+            "--format=csv,noheader,nounits",
+            "-i", gpu_uuid,
+        ]).await
             .map_err(|e| GpuError::MetricsError(format!("nvidia-smi failed: {}", e)))?;
 
         if !output.status.success() {

@@ -109,7 +109,8 @@ export function useGPUHealth(options: UseGPUHealthOptions = {}) {
   const fetchGPUMetrics = useCallback(async (): Promise<GPUMetrics[]> => {
     try {
       // Fetch from the coordinator API
-      const response = await fetch("/api/v1/gpu/metrics");
+      const coordinatorUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3030';
+      const response = await fetch(`${coordinatorUrl}/api/v1/gpu/metrics`);
 
       if (!response.ok) {
         throw new Error(`GPU metrics API returned ${response.status}`);

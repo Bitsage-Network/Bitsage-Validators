@@ -115,7 +115,14 @@ impl AuthState {
 
     /// Validate and decode a JWT token
     pub fn validate_token(&self, token: &str) -> Result<Claims, AuthError> {
-        let validation = Validation::default();
+        let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
+        // Require exp claim and validate it (default in jsonwebtoken 9.x)
+        validation.validate_exp = true;
+        // Reject tokens issued far in the future (clock skew tolerance: 60s)
+        validation.leeway = 60;
+        // Explicitly only allow HS256 — prevents algorithm confusion attacks
+        validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
+
         let token_data = decode::<Claims>(token, &self.decoding_key, &validation)
             .map_err(|e| match e.kind() {
                 jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
@@ -125,12 +132,25 @@ impl AuthState {
         Ok(token_data.claims)
     }
 
-    /// Validate worker API key
+    /// Validate worker API key (constant-time comparison to prevent timing attacks)
     pub fn validate_worker_api_key(&self, key: &str) -> bool {
-        self.worker_api_key
-            .as_ref()
-            .map(|k| k == key)
-            .unwrap_or(true) // Allow if no key is configured (dev mode)
+        match self.worker_api_key.as_ref() {
+            Some(k) => {
+                use ring::constant_time::verify_slices_are_equal;
+                verify_slices_are_equal(k.as_bytes(), key.as_bytes()).is_ok()
+            }
+            None => {
+                let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
+                    || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+                if is_production {
+                    tracing::error!("WORKER_API_KEY not configured — rejecting request in production");
+                    false
+                } else {
+                    tracing::warn!("WORKER_API_KEY not configured — allowing in dev mode");
+                    true
+                }
+            }
+        }
     }
 }
 
@@ -300,7 +320,10 @@ pub mod wallet_auth {
     use super::*;
     use starknet_crypto::{verify, FieldElement};
 
-    /// Request to authenticate with wallet signature
+    /// Maximum age for a signed request (5 minutes)
+    const MAX_SIGNATURE_AGE_SECS: i64 = 300;
+
+    /// Request to authenticate with wallet signature (for JWT token issuance)
     #[derive(Debug, Deserialize)]
     pub struct WalletAuthRequest {
         pub wallet_address: String,
@@ -324,7 +347,6 @@ pub mod wallet_auth {
         sig_r: &str,
         sig_s: &str,
     ) -> Result<bool, AuthError> {
-        // Parse the wallet address and signature components
         let public_key = FieldElement::from_hex_be(wallet)
             .map_err(|_| AuthError::InvalidSignature)?;
 
@@ -337,7 +359,6 @@ pub mod wallet_auth {
         let s = FieldElement::from_hex_be(sig_s)
             .map_err(|_| AuthError::InvalidSignature)?;
 
-        // Verify the ECDSA signature
         match verify(&public_key, &msg_hash, &r, &s) {
             Ok(valid) => Ok(valid),
             Err(_) => Err(AuthError::InvalidSignature),
@@ -351,5 +372,111 @@ pub mod wallet_auth {
             "Sign this message to authenticate with BitSage Network.\n\nWallet: {}\nTimestamp: {}",
             wallet, timestamp
         )
+    }
+
+    /// Compute the message hash for per-request wallet signature verification.
+    /// The message is: keccak256(wallet_address || timestamp || request_path)
+    /// Returns the hash as a hex string (without 0x prefix).
+    pub fn compute_request_hash(wallet: &str, timestamp: &str, request_path: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(wallet.as_bytes());
+        hasher.update(b":");
+        hasher.update(timestamp.as_bytes());
+        hasher.update(b":");
+        hasher.update(request_path.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    /// Verify the X-Wallet-Address header is backed by a valid signature.
+    ///
+    /// Required headers:
+    /// - X-Wallet-Address: Starknet address (0x...)
+    /// - X-Signature-R: ECDSA signature r component (0x...)
+    /// - X-Signature-S: ECDSA signature s component (0x...)
+    /// - X-Signature-Timestamp: Unix timestamp when the signature was created
+    ///
+    /// The signed message is: SHA256(wallet:timestamp:request_path)
+    /// The timestamp must be within MAX_SIGNATURE_AGE_SECS of the current time.
+    pub fn verify_wallet_header(
+        headers: &HeaderMap,
+        request_path: &str,
+    ) -> Result<String, AuthError> {
+        let wallet = headers.get("X-Wallet-Address")
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+            .ok_or(AuthError::MissingAuth)?;
+
+        let sig_r = headers.get("X-Signature-R")
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| {
+                warn!(wallet = %wallet, "Missing X-Signature-R header");
+                AuthError::InvalidSignature
+            })?;
+
+        let sig_s = headers.get("X-Signature-S")
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| {
+                warn!(wallet = %wallet, "Missing X-Signature-S header");
+                AuthError::InvalidSignature
+            })?;
+
+        let timestamp_str = headers.get("X-Signature-Timestamp")
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| {
+                warn!(wallet = %wallet, "Missing X-Signature-Timestamp header");
+                AuthError::InvalidSignature
+            })?;
+
+        // Validate timestamp is within window
+        let timestamp: i64 = timestamp_str.parse()
+            .map_err(|_| AuthError::InvalidSignature)?;
+        let now = Utc::now().timestamp();
+        let age = (now - timestamp).abs();
+        if age > MAX_SIGNATURE_AGE_SECS {
+            warn!(
+                wallet = %wallet,
+                age_secs = age,
+                max_secs = MAX_SIGNATURE_AGE_SECS,
+                "Signature timestamp too old or too far in future"
+            );
+            return Err(AuthError::TokenExpired);
+        }
+
+        // Compute message hash and verify signature
+        let message_hash = compute_request_hash(wallet, timestamp_str, request_path);
+
+        // Prepend 0x for FieldElement parsing if the hash doesn't have it
+        let hash_hex = if message_hash.starts_with("0x") {
+            message_hash.clone()
+        } else {
+            format!("0x{}", message_hash)
+        };
+
+        match verify_signature(wallet, &hash_hex, sig_r, sig_s) {
+            Ok(true) => {
+                debug!(wallet = %wallet, "Wallet signature verified");
+                Ok(wallet.to_string())
+            }
+            Ok(false) => {
+                warn!(wallet = %wallet, "Wallet signature verification failed — invalid signature");
+                Err(AuthError::InvalidSignature)
+            }
+            Err(e) => {
+                warn!(wallet = %wallet, error = %e, "Wallet signature verification error");
+                Err(e)
+            }
+        }
+    }
+
+    /// Check if wallet signature verification should be enforced.
+    /// Returns true in production when wallet_auth is enabled.
+    pub fn is_enforced() -> bool {
+        let is_production = std::env::var("PRODUCTION").is_ok()
+            || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        is_production && CONFIG.auth.wallet_auth_enabled
     }
 }

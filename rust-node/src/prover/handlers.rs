@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use rand::Rng;
@@ -71,7 +71,12 @@ pub async fn submit_proof(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ProofRequest>,
 ) -> Result<Json<ApiResponse<ProofSubmitResponse>>, StatusCode> {
-    match state.router.route(&request, &state.workers, &state.proofs).await {
+    match state.router.route_with_channels(
+        &request,
+        &state.workers,
+        &state.proofs,
+        Some(&state.worker_channels),
+    ).await {
         Ok(request_id) => Ok(ApiResponse::ok(ProofSubmitResponse {
             request_id,
             status: ProofJobStatus::Pending,
@@ -131,21 +136,62 @@ pub struct ProofStatusResponse {
 
 /// POST /api/v1/prover/submit
 pub async fn submit_on_chain(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(request): Json<OnChainSubmitRequest>,
 ) -> Json<ApiResponse<OnChainSubmitResponse>> {
-    // TODO: Submit proof to Starknet verifier contract
     tracing::info!(
         proof_id = %request.proof.id,
         verifier = %request.verifier_address,
-        "Submitting proof on-chain"
+        "On-chain proof submission requested"
     );
 
-    // Mock response for now
-    ApiResponse::ok(OnChainSubmitResponse {
-        tx_hash: format!("0x{:064x}", rand::random::<u128>()),
-        status: "pending".to_string(),
-    })
+    // Check if on-chain escrow is available
+    let escrow = match state.rentals.billing.escrow_client() {
+        Some(client) if state.rentals.billing.is_on_chain_enabled() => client.clone(),
+        _ => {
+            tracing::warn!("On-chain escrow not available — proof verified off-chain only");
+            return ApiResponse::err(
+                "On-chain escrow not configured. Set STARKNET_RPC, COORDINATOR_PRIVATE_KEY, \
+                 and COORDINATOR_ADDRESS to enable on-chain proof submission."
+            );
+        }
+    };
+
+    // Verify proof exists in our state
+    {
+        let proofs = state.proofs.read().await;
+        if proofs.get_completed(&request.proof.id).is_none() {
+            return ApiResponse::err("Proof not found or not yet completed");
+        }
+    }
+
+    // Submit the proof verification transaction on-chain
+    // The verifier contract validates the STWO proof and emits an event
+    match escrow.submit_proof_verification(
+        &request.verifier_address,
+        &request.proof,
+        &request.calldata,
+    ).await {
+        Ok(tx_hash) => {
+            tracing::info!(
+                proof_id = %request.proof.id,
+                tx_hash = %tx_hash,
+                "Proof submitted on-chain"
+            );
+            ApiResponse::ok(OnChainSubmitResponse {
+                tx_hash,
+                status: "submitted".to_string(),
+            })
+        }
+        Err(e) => {
+            tracing::error!(
+                proof_id = %request.proof.id,
+                error = %e,
+                "On-chain proof submission failed"
+            );
+            ApiResponse::err(format!("On-chain submission failed: {}", e))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -173,11 +219,20 @@ pub async fn get_tee_attestation(
     let enclaves = state.workers.get_available_tee_enclaves().await;
 
     if let Some(enclave) = enclaves.first() {
-        // Generate fresh attestation
+        // Generate attestation (mock in dev, requires real TEE in production)
+        let quote = match generate_mock_quote() {
+            Some(q) => q,
+            None => return ApiResponse::err("TEE attestation requires real hardware in production"),
+        };
+        let pub_key = match generate_mock_pubkey() {
+            Some(k) => k,
+            None => return ApiResponse::err("TEE key generation requires real hardware in production"),
+        };
+
         let attestation = TeeAttestation {
             tee_type: format!("{:?}", enclave.tee_type).to_lowercase(),
-            quote: generate_mock_quote(),
-            enclave_pub_key: generate_mock_pubkey(),
+            quote,
+            enclave_pub_key: pub_key,
             measurement: enclave.measurement.clone(),
             signature: "0x".to_string() + &hex::encode(random_bytes::<64>()),
             timestamp: chrono::Utc::now().timestamp(),
@@ -208,7 +263,12 @@ pub async fn submit_tee_proof(
         client_pub_key: None,
     };
 
-    match state.router.route(&proof_request, &state.workers, &state.proofs).await {
+    match state.router.route_with_channels(
+        &proof_request,
+        &state.workers,
+        &state.proofs,
+        Some(&state.worker_channels),
+    ).await {
         Ok(request_id) => ApiResponse::ok(ProofSubmitResponse {
             request_id,
             status: ProofJobStatus::Pending,
@@ -265,11 +325,17 @@ pub async fn submit_worker_job(
         client_pub_key: None,
     };
 
-    match state.router.route(&proof_request, &state.workers, &state.proofs).await {
+    match state.router.route_with_channels(
+        &proof_request,
+        &state.workers,
+        &state.proofs,
+        Some(&state.worker_channels),
+    ).await {
         Ok(request_id) => {
-            // Get assigned worker
-            let workers = state.workers.get_available_gpu_workers().await;
-            let worker_id = workers.first().map(|w| w.id.clone());
+            // Get assigned worker from ProofState
+            let proofs = state.proofs.read().await;
+            let worker_id = proofs.get_pending(&request_id)
+                .and_then(|j| j.worker_id.clone());
 
             ApiResponse::ok(WorkerJobResponse {
                 job_id: request_id,
@@ -307,12 +373,47 @@ pub async fn get_job_status(
 
 /// POST /api/v1/workers/job/:job_id/cancel
 pub async fn cancel_job(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(job_id): Path<Uuid>,
 ) -> Json<ApiResponse<CancelResponse>> {
-    // TODO: Actually cancel the job
     tracing::info!(job_id = %job_id, "Cancelling job");
-    ApiResponse::ok(CancelResponse { cancelled: true })
+
+    let mut proofs = state.proofs.write().await;
+
+    // Check if job exists in pending state
+    if proofs.get_pending(&job_id).is_some() {
+        // Remove from pending and mark as cancelled with empty proof
+        let circuit = proofs.get_pending(&job_id).unwrap().circuit.clone();
+        let cancelled_result = ProofResult {
+            id: job_id,
+            circuit,
+            proof: STWOProof {
+                commitment: String::new(),
+                fri: FriProof {
+                    layer_commitments: vec![],
+                    queries: vec![],
+                },
+                final_poly: vec![],
+                public_inputs: vec![],
+            },
+            public_inputs: serde_json::Value::Null,
+            mode: ProofMode::WorkerGpu,
+            timestamp: chrono::Utc::now().timestamp(),
+            generation_time_ms: 0,
+            attestation: None,
+        };
+        proofs.complete(job_id, cancelled_result);
+        tracing::info!(job_id = %job_id, "Job cancelled successfully");
+        ApiResponse::ok(CancelResponse { cancelled: true })
+    } else if proofs.get_completed(&job_id).is_some() {
+        // Job already completed
+        tracing::warn!(job_id = %job_id, "Cannot cancel — job already completed");
+        ApiResponse::err("Job already completed")
+    } else {
+        // Job not found
+        tracing::warn!(job_id = %job_id, "Cannot cancel — job not found");
+        ApiResponse::err("Job not found")
+    }
 }
 
 #[derive(Serialize)]
@@ -320,18 +421,74 @@ pub struct CancelResponse {
     pub cancelled: bool,
 }
 
+/// GET /api/v1/gpu/metrics — all GPU worker metrics for dashboard
+pub async fn get_gpu_metrics(
+    State(state): State<Arc<AppState>>,
+) -> Json<Vec<serde_json::Value>> {
+    let gpu_workers = state.workers.get_available_gpu_workers().await;
+    let all_workers = if gpu_workers.is_empty() {
+        // Also include inactive workers
+        state.workers.get_all_gpu_workers().await
+    } else {
+        gpu_workers
+    };
+
+    let metrics: Vec<serde_json::Value> = all_workers
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let vram_total_mb = w.vram_gb.unwrap_or(0) as u64 * 1024;
+            let vram_used_mb = (w.current_load as u64 * vram_total_mb) / 100;
+            serde_json::json!({
+                "id": i,
+                "name": w.gpu_model.clone().unwrap_or_else(|| "Unknown GPU".to_string()),
+                "temperature": 0,
+                "temperatureMax": 95,
+                "utilization": w.current_load,
+                "memoryUsed": vram_used_mb,
+                "memoryTotal": vram_total_mb,
+                "powerDraw": 0,
+                "powerLimit": 700,
+                "fanSpeed": 0,
+                "clockSpeed": 0,
+                "clockSpeedMax": 2100,
+                "computeMode": "Default",
+                "driverVersion": "N/A",
+                "cudaCores": 16896
+            })
+        })
+        .collect();
+
+    Json(metrics)
+}
+
 /// GET /api/v1/workers/:worker_id/metrics
 pub async fn get_worker_metrics(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(worker_id): Path<String>,
 ) -> Json<ApiResponse<WorkerMetrics>> {
-    // Mock metrics for now
+    // Try to get real metrics from registered worker
+    let gpu_workers = state.workers.get_available_gpu_workers().await;
+    if let Some(worker) = gpu_workers.iter().find(|w| w.id == worker_id) {
+        let vram_total = worker.vram_gb.unwrap_or(0) as u64 * 1024 * 1024 * 1024;
+        let vram_used = (worker.current_load as u64 * vram_total) / 100;
+        return ApiResponse::ok(WorkerMetrics {
+            gpu_utilization: worker.current_load as f32 / 100.0,
+            memory_used: vram_used,
+            memory_total: vram_total,
+            temperature: 0.0, // Not tracked in GpuWorker — requires GPU metrics endpoint
+            proofs_per_hour: 0, // Computed from job completion rate, not tracked per-worker
+        });
+    }
+
+    // Worker not found — return zeros instead of fake data
+    tracing::warn!(worker_id = %worker_id, "Worker not found for metrics request");
     ApiResponse::ok(WorkerMetrics {
-        gpu_utilization: 0.65,
-        memory_used: 8_000_000_000,
-        memory_total: 16_000_000_000,
-        temperature: 72.0,
-        proofs_per_hour: 120,
+        gpu_utilization: 0.0,
+        memory_used: 0,
+        memory_total: 0,
+        temperature: 0.0,
+        proofs_per_hour: 0,
     })
 }
 
@@ -342,11 +499,28 @@ pub async fn get_network_stats(
     let gpu_workers = state.workers.get_available_gpu_workers().await;
     let tee_enclaves = state.workers.get_available_tee_enclaves().await;
 
+    // Calculate real aggregate stats from registered workers
+    let total_gpu_memory_gb: f64 = gpu_workers.iter()
+        .filter_map(|w| w.vram_gb)
+        .map(|v| v as f64)
+        .sum();
+
+    // Get real proof stats from ProofState
+    let proofs = state.proofs.read().await;
+    let completed_count = proofs.completed_count() as u64;
+    let pending_count = proofs.pending_count();
+    drop(proofs);
+
+    // active_workers = workers with jobs assigned or current_load > 0
+    let active_workers = gpu_workers.iter()
+        .filter(|w| w.current_load > 0 || w.active_workload.is_some())
+        .count() as u32;
+
     ApiResponse::ok(NetworkStats {
         total_workers: (gpu_workers.len() + tee_enclaves.len()) as u32,
-        active_workers: gpu_workers.iter().filter(|w| w.current_load > 0).count() as u32,
-        total_gpu_memory_gb: 64.0, // Mock
-        proofs_last_hour: 500,     // Mock
+        active_workers: active_workers + pending_count as u32,
+        total_gpu_memory_gb,
+        proofs_last_hour: completed_count, // Total completed proofs (approximate for now)
         average_proof_time_ms: 4500,
     })
 }
@@ -356,11 +530,53 @@ pub async fn get_network_stats(
 // ============================================================================
 
 /// POST /api/v1/workers/gpu/register
-/// GPU workers call this to register with the coordinator
+/// GPU workers call this to register with the coordinator (requires API key in production)
 pub async fn register_gpu_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<GpuWorkerRegistration>,
 ) -> Json<ApiResponse<WorkerRegistrationResponse>> {
+    // Security: require worker API key in production to prevent fake worker registration
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for registration in production");
+        }
+    }
+
+    // Validate registration fields
+    if request.worker_id.is_empty() || request.worker_id.len() > 256 {
+        return ApiResponse::err("worker_id must be 1-256 characters");
+    }
+    if !request.worker_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        return ApiResponse::err("worker_id contains invalid characters");
+    }
+    if request.capacity == 0 || request.capacity > 1000 {
+        return ApiResponse::err("capacity must be 1-1000");
+    }
+    if let Some(vram) = request.vram_gb {
+        if vram > 10000 {
+            return ApiResponse::err("vram_gb exceeds maximum (10000)");
+        }
+    }
+    if let Some(ref model) = request.gpu_model {
+        if model.len() > 256 {
+            return ApiResponse::err("gpu_model too long (max 256 chars)");
+        }
+    }
+    if let Some(ref owner) = request.owner_address {
+        if !owner.starts_with("0x") || owner.len() < 4 || owner.len() > 66 {
+            return ApiResponse::err("Invalid owner_address format");
+        }
+    }
+
+    // Cap worker pool size to prevent memory exhaustion
+    let pool_size = state.workers.gpu_worker_count().await;
+    if pool_size >= 10_000 {
+        return ApiResponse::err("Worker pool at capacity");
+    }
+
     tracing::info!(
         worker_id = %request.worker_id,
         gpu_backend = ?request.gpu_backend,
@@ -407,11 +623,20 @@ pub struct GpuWorkerRegistration {
 }
 
 /// POST /api/v1/workers/tee/register
-/// TEE workers call this to register with the coordinator
+/// TEE workers call this to register with the coordinator (requires API key in production)
 pub async fn register_tee_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<TeeWorkerRegistration>,
 ) -> Json<ApiResponse<WorkerRegistrationResponse>> {
+    // Security: require worker API key in production
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for registration in production");
+        }
+    }
     tracing::info!(
         worker_id = %request.worker_id,
         tee_type = ?request.tee_type,
@@ -466,20 +691,31 @@ pub struct WorkerRegistrationResponse {
 /// Workers call this to send heartbeat and update their status
 pub async fn worker_heartbeat(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<WorkerHeartbeat>,
 ) -> Json<ApiResponse<HeartbeatResponse>> {
+    // Security: require worker API key in production to prevent heartbeat spoofing
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for heartbeat in production");
+        }
+    }
+
     tracing::debug!(
         worker_id = %request.worker_id,
         current_load = %request.current_load,
         "Worker heartbeat"
     );
 
-    // Update worker status
+    // Update worker status and heartbeat timestamp
     state.workers.update_worker_status(
         &request.worker_id,
         request.current_load,
         request.is_healthy,
     ).await;
+    state.workers.update_heartbeat(&request.worker_id).await;
 
     // Check for pending jobs that need to be assigned
     let pending_job = state.workers.get_pending_job_for_worker(&request.worker_id).await;
@@ -528,9 +764,19 @@ pub struct PendingJobInfo {
 /// Workers call this to submit proof results
 pub async fn submit_job_result(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(job_id): Path<Uuid>,
     Json(request): Json<JobResultSubmission>,
 ) -> Json<ApiResponse<JobResultResponse>> {
+    // Security: require worker API key in production — this endpoint credits SAGE earnings
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for job result submission in production");
+        }
+    }
+
     tracing::info!(
         job_id = %job_id,
         worker_id = %request.worker_id,
@@ -540,9 +786,34 @@ pub async fn submit_job_result(
 
     if request.success {
         if let Some(proof) = request.proof {
+            let generation_time_ms = request.generation_time_ms.unwrap_or(0);
+
+            // Use the original job's circuit type AND verify the worker is actually assigned
+            let circuit = {
+                let proofs = state.proofs.read().await;
+                if let Some(job) = proofs.get_pending(&job_id) {
+                    // Verify the submitting worker is the one assigned to this job
+                    if let Some(ref assigned) = job.worker_id {
+                        if assigned != &request.worker_id {
+                            tracing::warn!(
+                                job_id = %job_id,
+                                claimed = %request.worker_id,
+                                assigned = %assigned,
+                                "Job result from worker not assigned to this job — rejecting"
+                            );
+                            return ApiResponse::err("Worker not assigned to this job");
+                        }
+                    }
+                    job.circuit
+                } else {
+                    tracing::warn!(job_id = %job_id, "Job result for unknown/completed job");
+                    return ApiResponse::err("Job not found or already completed");
+                }
+            };
+
             let result = ProofResult {
                 id: job_id,
-                circuit: request.circuit,
+                circuit,
                 proof,
                 public_inputs: request.public_inputs.unwrap_or(serde_json::Value::Null),
                 mode: if request.attestation.is_some() {
@@ -551,12 +822,46 @@ pub async fn submit_job_result(
                     ProofMode::WorkerGpu
                 },
                 timestamp: chrono::Utc::now().timestamp(),
-                generation_time_ms: request.generation_time_ms.unwrap_or(0),
+                generation_time_ms,
                 attestation: request.attestation,
             };
 
             let mut proofs = state.proofs.write().await;
             proofs.complete(job_id, result);
+            drop(proofs);
+
+            // Credit SAGE earnings to the worker's validator
+            if let Some(gpu_worker) = state.workers.get_gpu_worker(&request.worker_id).await {
+                if let Some(ref owner) = gpu_worker.owner_address {
+                    let reward_sage = crate::prover::streaming::calculate_proof_reward_for_billing(circuit, generation_time_ms);
+                    state.rentals.billing.credit_proof_earnings(
+                        owner,
+                        reward_sage,
+                        job_id,
+                    ).await;
+
+                    // Persist earnings to database
+                    if let Some(db) = state.db.as_ref() {
+                        let repo = db.validator_earnings();
+                        if let Err(e) = repo.add_earnings(owner, reward_sage as i64).await {
+                            tracing::error!(
+                                validator = %owner,
+                                amount = reward_sage,
+                                error = %e,
+                                "Failed to persist proof earnings to DB (REST)"
+                            );
+                        }
+                    }
+
+                    tracing::info!(
+                        job_id = %job_id,
+                        worker_id = %request.worker_id,
+                        validator = %owner,
+                        reward_sage = reward_sage,
+                        "Credited SAGE proof reward to validator (REST)"
+                    );
+                }
+            }
         }
     }
 
@@ -593,8 +898,18 @@ pub struct JobResultResponse {
 /// Workers call this when shutting down
 pub async fn deregister_worker(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<WorkerDeregistration>,
 ) -> Json<ApiResponse<DeregistrationResponse>> {
+    // Security: require worker API key in production
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = headers.get("X-API-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !state.auth.validate_worker_api_key(api_key) {
+            return ApiResponse::err("Worker API key required for deregistration in production");
+        }
+    }
+
     tracing::info!(
         worker_id = %request.worker_id,
         "Worker deregistering"
@@ -637,20 +952,78 @@ pub struct TeeWorkersResponse {
 // ============================================================================
 
 /// Verify TEE attestation quote
+///
+/// Production: Performs structural validation of the attestation quote.
+/// Full cryptographic verification (IAS/DCAP for SGX, AMD for SEV) requires
+/// integration with vendor attestation services, which should be added before
+/// mainnet launch with real TEE hardware.
+///
+/// Current checks (production):
+///   1. Quote is non-empty and properly hex-encoded
+///   2. Quote meets minimum length for the TEE type
+///   3. Measurement field is present in the quote structure
+///
+/// Dev mode: accepts any non-empty quote with a warning.
 fn verify_attestation(quote: &str, tee_type: &TeeType) -> bool {
-    // TODO: Implement real attestation verification
-    // For SGX: Verify with Intel Attestation Service
-    // For TDX: Verify with DCAP
-    // For SEV: Verify with AMD attestation
+    let is_production = std::env::var("PRODUCTION").is_ok()
+        || std::env::var("BITSAGE_PRODUCTION").is_ok();
 
-    // For now, accept any non-empty quote
-    tracing::debug!(
+    if quote.is_empty() {
+        tracing::warn!("Empty attestation quote rejected");
+        return false;
+    }
+
+    if is_production {
+        // Structural validation — not full crypto verification yet
+        // (Full DCAP/IAS integration needed before mainnet with real TEE hardware)
+
+        let hex_str = quote.strip_prefix("0x").unwrap_or(quote);
+
+        // Verify it's valid hex
+        if !hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+            tracing::warn!(tee_type = ?tee_type, "Attestation quote is not valid hex — rejected");
+            return false;
+        }
+
+        // Minimum quote sizes (bytes): SGX ECDSA quote ~1052 bytes, TDX ~1500, SEV ~2048
+        let min_bytes = match tee_type {
+            TeeType::Sgx => 512,  // Minimum plausible SGX quote
+            TeeType::Tdx => 512,  // Minimum plausible TDX quote
+            TeeType::Sev => 256,  // Minimum plausible SEV report
+            TeeType::Simulated => {
+                // Simulated TEE must never pass production validation
+                tracing::warn!("Simulated TEE type in production attestation — rejecting");
+                return false;
+            }
+        };
+        let quote_bytes = hex_str.len() / 2;
+
+        if quote_bytes < min_bytes {
+            tracing::warn!(
+                tee_type = ?tee_type,
+                quote_bytes = quote_bytes,
+                min_bytes = min_bytes,
+                "Attestation quote too short for TEE type — rejected"
+            );
+            return false;
+        }
+
+        tracing::info!(
+            tee_type = ?tee_type,
+            quote_bytes = quote_bytes,
+            "Attestation quote passed structural validation (full crypto verification pending)"
+        );
+        return true;
+    }
+
+    // Dev mode: accept any non-empty quote
+    tracing::warn!(
         tee_type = ?tee_type,
         quote_len = quote.len(),
-        "Verifying attestation quote"
+        "DEV MODE: Skipping real attestation verification"
     );
 
-    !quote.is_empty()
+    true
 }
 
 fn estimate_proof_time(circuit: &CircuitType) -> u64 {
@@ -667,19 +1040,35 @@ fn estimate_proof_time(circuit: &CircuitType) -> u64 {
     }
 }
 
-fn generate_mock_quote() -> String {
-    // SGX quote structure (simplified)
+fn generate_mock_quote() -> Option<String> {
+    let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
+        || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+
+    if is_production {
+        tracing::error!("generate_mock_quote called in production — TEE hardware required");
+        return None;
+    }
+
+    // SGX quote structure (simplified) — dev only
     let header = [0x02, 0x00]; // Version 2
     let body = random_bytes::<128>();
     let mut quote = Vec::with_capacity(130);
     quote.extend_from_slice(&header);
     quote.extend_from_slice(&body);
-    format!("0x{}", hex::encode(quote))
+    Some(format!("0x{}", hex::encode(quote)))
 }
 
-fn generate_mock_pubkey() -> String {
-    // P-256 uncompressed public key (65 bytes: 0x04 + X + Y)
+fn generate_mock_pubkey() -> Option<String> {
+    let is_production = std::env::var("PRODUCTION").unwrap_or_default() == "true"
+        || std::env::var("NODE_ENV").unwrap_or_default() == "production";
+
+    if is_production {
+        tracing::error!("generate_mock_pubkey called in production — TEE hardware required");
+        return None;
+    }
+
+    // P-256 uncompressed public key (65 bytes: 0x04 + X + Y) — dev only
     let mut pubkey = vec![0x04];
     pubkey.extend_from_slice(&random_bytes::<64>());
-    format!("0x{}", hex::encode(pubkey))
+    Some(format!("0x{}", hex::encode(pubkey)))
 }

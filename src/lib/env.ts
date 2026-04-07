@@ -169,7 +169,9 @@ export function getEnvConfig(): EnvConfig {
 
   return {
     network,
-    rpcUrl: getEnv('NEXT_PUBLIC_RPC_URL') || 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo',
+    rpcUrl: getEnv('NEXT_PUBLIC_RPC_URL') || (network === 'mainnet'
+      ? 'https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_7/demo'
+      : 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo'),
     apiUrl: getEnv('NEXT_PUBLIC_API_URL') || OPTIONAL_ENV_VARS.NEXT_PUBLIC_API_URL,
     wsUrl: getEnv('NEXT_PUBLIC_WS_URL') || OPTIONAL_ENV_VARS.NEXT_PUBLIC_WS_URL,
 

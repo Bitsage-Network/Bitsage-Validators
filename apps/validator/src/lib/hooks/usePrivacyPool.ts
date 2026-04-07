@@ -54,8 +54,8 @@ import { usePrivacyKeys } from "./usePrivacyKeys";
 import { getConfig } from "@/lib/env";
 import { getASPMembershipProof } from "@/lib/api/client";
 import {
-  buildInitiateRagequitCall,
-  buildCompleteRagequitCall,
+  buildPrivacyPoolRagequitCall,
+  buildExecuteRagequitCall,
   merkleProofToLeanIMT,
 } from "@/lib/contracts";
 
@@ -1044,20 +1044,9 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
       const amountWei = toWei(note.denomination);
       const TWO_POW_128 = 2n ** 128n;
 
-      const call = buildInitiateRagequitCall(
-        {
-          deposit_commitment: noteCommitment,
-          global_tree_proof: globalTreeProof,
-          exclusion_proofs: [], // Testnet: exclusion enforcement not active
-          excluded_set_ids: [],
-          depositor_signature: [sigArray[0], sigArray[1]],
-          amount: {
-            low: (amountWei % TWO_POW_128).toString(),
-            high: (amountWei / TWO_POW_128).toString(),
-          },
-          recipient: recipient || address,
-        }
-      );
+      const sageToken = process.env.NEXT_PUBLIC_SAGE_TOKEN_ADDRESS || "0x0";
+      const depositIndex = notes.indexOf(note);
+      const call = buildPrivacyPoolRagequitCall(sageToken, depositIndex);
 
       const result = await account.execute([call]);
       return result.transaction_hash;
@@ -1072,7 +1061,8 @@ export function usePrivacyPool(): UsePrivacyPoolReturn {
         throw new Error("Wallet not connected");
       }
 
-      const call = buildCompleteRagequitCall(BigInt(requestId));
+      const sageToken = process.env.NEXT_PUBLIC_SAGE_TOKEN_ADDRESS || "0x0";
+      const call = buildExecuteRagequitCall(sageToken, Number(requestId));
       const result = await account.execute([call]);
       return result.transaction_hash;
     },

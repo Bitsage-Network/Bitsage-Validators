@@ -29,7 +29,7 @@ cd /home/bitsage/app
 sudo -u bitsage cat > .env.local << 'ENVEOF'
 NEXT_PUBLIC_STARKNET_NETWORK=sepolia
 NEXT_PUBLIC_ENABLE_TESTNETS=true
-NEXT_PUBLIC_RPC_URL=https://starknet-sepolia.public.blastapi.io
+NEXT_PUBLIC_RPC_URL=https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo
 NEXT_PUBLIC_API_URL=https://api.sepolia.bitsage.network
 NEXT_PUBLIC_WS_URL=wss://api.sepolia.bitsage.network/ws
 NEXT_PUBLIC_DEMO_MODE=true
@@ -107,10 +107,23 @@ sudo -u bitsage pm2 save
 
 # Nginx configuration
 cat > /etc/nginx/sites-available/bitsage-validators << 'NGINXEOF'
+# Security headers (shared)
+map $uri $csp_header {
+    default "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://*.bitsage.network https://*.bitsage.network https://*.alchemy.com https://*.starknet.io; img-src 'self' data:; font-src 'self' data:;";
+}
+
 # Validator Dashboard
 server {
     listen 80;
     server_name validators.bitsage.network;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy $csp_header always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location / {
         proxy_pass http://127.0.0.1:3000;

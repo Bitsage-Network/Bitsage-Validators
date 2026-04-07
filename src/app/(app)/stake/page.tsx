@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { getExplorerUrl } from "@/lib/contracts/addresses";
 import { PrivacyBalanceCard, PrivacyOption } from "@/components/privacy/PrivacyToggle";
 import { useSafeObelyskWallet } from "@/lib/obelysk/ObelyskWalletContext";
 import Link from "next/link";
@@ -820,7 +821,7 @@ function StakePageInner({
                   <div className="flex items-center justify-between">
                     <span className="text-emerald-400">Transaction submitted!</span>
                     <a
-                      href={`https://sepolia.starkscan.co/tx/${txData.transaction_hash}`}
+                      href={`${getExplorerUrl('tx')}/${txData.transaction_hash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-brand-400 hover:text-brand-300 flex items-center gap-1"
@@ -996,7 +997,7 @@ function StakePageInner({
                     </p>
                     {event.tx_hash && (
                       <a
-                        href={`https://sepolia.starkscan.co/tx/${event.tx_hash}`}
+                        href={`${getExplorerUrl('tx')}/${event.tx_hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-brand-400 hover:underline flex items-center gap-1 justify-end"

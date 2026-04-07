@@ -201,6 +201,7 @@ pub fn validate_register_gpu(
     v.gpu_id(gpu_id, "gpu_id")
         .starknet_address(validator_wallet, "validator_wallet")
         .positive(rate_sage_per_hour, "rate_sage_per_hour")
+        .range(rate_sage_per_hour, 1, 10_000, "rate_sage_per_hour") // Cap at 10,000 SAGE/hr to prevent abuse
         .range(vram_gb as u64, 4, 256, "vram_gb"); // 4GB to 256GB reasonable range
 
     if v.has_errors() {

@@ -74,7 +74,7 @@ pub struct DatabaseConfig {
     pub run_migrations: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct AuthConfig {
     /// JWT secret key (must be set in production)
     #[serde(default = "default_jwt_secret")]
@@ -93,6 +93,20 @@ pub struct AuthConfig {
     /// Rate limit: burst size
     #[serde(default = "default_burst_size")]
     pub rate_limit_burst: u32,
+}
+
+// Custom Debug to prevent jwt_secret and worker_api_key from appearing in logs
+impl std::fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("jwt_secret", &format!("[REDACTED ({} chars)]", self.jwt_secret.len()))
+            .field("token_expiry_hours", &self.token_expiry_hours)
+            .field("worker_api_key", &self.worker_api_key.as_ref().map(|k| format!("[REDACTED ({} chars)]", k.len())))
+            .field("wallet_auth_enabled", &self.wallet_auth_enabled)
+            .field("rate_limit_per_minute", &self.rate_limit_per_minute)
+            .field("rate_limit_burst", &self.rate_limit_burst)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -135,7 +149,7 @@ pub struct WorkerConfig {
     pub docker_registry: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct StarknetConfig {
     /// Starknet RPC URL
     #[serde(default = "default_starknet_rpc")]
@@ -145,10 +159,24 @@ pub struct StarknetConfig {
     pub chain_id: String,
     /// Coordinator account address
     pub account_address: Option<String>,
-    /// Coordinator private key (for signing transactions)
+    /// Coordinator private key (for signing transactions) — NEVER log this value
+    #[serde(skip_serializing)]
     pub private_key: Option<String>,
     /// SAGE token contract address
     pub sage_token_contract: Option<String>,
+}
+
+// Custom Debug to prevent private key from appearing in logs
+impl std::fmt::Debug for StarknetConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StarknetConfig")
+            .field("rpc_url", &self.rpc_url)
+            .field("chain_id", &self.chain_id)
+            .field("account_address", &self.account_address)
+            .field("private_key", &self.private_key.as_ref().map(|_| "[REDACTED]"))
+            .field("sage_token_contract", &self.sage_token_contract)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -197,7 +225,7 @@ fn default_deployment_timeout() -> u64 { 300 }
 fn default_heartbeat_timeout() -> u64 { 60 }
 fn default_max_deployments() -> u32 { 4 }
 fn default_docker_registry() -> String { "bitsage".to_string() }
-fn default_starknet_rpc() -> String { "https://starknet-sepolia.public.blastapi.io".to_string() }
+fn default_starknet_rpc() -> String { "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo".to_string() }
 fn default_chain_id() -> String { "sepolia".to_string() }
 fn default_true() -> bool { true }
 fn default_metrics_port() -> u16 { 9090 }
@@ -265,6 +293,10 @@ impl Config {
         if let Ok(secret) = std::env::var("AUTH_JWT_SECRET") {
             cfg.auth.jwt_secret = secret;
         } else if cfg.auth.jwt_secret.is_empty() {
+            let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+            if is_production {
+                anyhow::bail!("AUTH_JWT_SECRET must be set in production (at least 32 characters)");
+            }
             cfg.auth.jwt_secret = default_jwt_secret();
         }
 
@@ -291,17 +323,83 @@ impl Config {
         if self.server.port == 0 {
             anyhow::bail!("Server port cannot be 0");
         }
+        if self.server.max_body_size > 100 * 1024 * 1024 {
+            anyhow::bail!("max_body_size exceeds 100MB limit");
+        }
+        if self.server.request_timeout_secs == 0 || self.server.request_timeout_secs > 300 {
+            anyhow::bail!("request_timeout_secs must be between 1 and 300");
+        }
 
-        // Warn about insecure settings in production
-        if std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok() {
+        // Validate database config
+        if self.database.max_connections == 0 {
+            anyhow::bail!("database max_connections cannot be 0");
+        }
+
+        // Validate rental config
+        if self.rental.min_rental_hours == 0 {
+            anyhow::bail!("min_rental_hours cannot be 0");
+        }
+        if self.rental.max_rental_hours < self.rental.min_rental_hours {
+            anyhow::bail!("max_rental_hours must be >= min_rental_hours");
+        }
+        if self.rental.billing_interval_secs < 60 {
+            anyhow::bail!("billing_interval_secs must be at least 60 seconds");
+        }
+
+        // Validate worker config
+        if self.worker.heartbeat_timeout_secs < 10 {
+            anyhow::bail!("heartbeat_timeout_secs must be at least 10 seconds");
+        }
+        if self.worker.deployment_timeout_secs < 30 {
+            anyhow::bail!("deployment_timeout_secs must be at least 30 seconds");
+        }
+
+        // Validate Starknet RPC URL is a real URL
+        if !self.starknet.rpc_url.starts_with("http://") && !self.starknet.rpc_url.starts_with("https://") {
+            anyhow::bail!("starknet.rpc_url must be an HTTP(S) URL");
+        }
+
+        // Enforce strict settings in production
+        let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+        if is_production {
+            // Auth
             if self.auth.jwt_secret.len() < 32 {
                 anyhow::bail!("JWT secret must be at least 32 characters in production");
             }
             if self.auth.worker_api_key.is_none() {
-                tracing::warn!("No worker API key set - workers will not be authenticated!");
+                anyhow::bail!("WORKER_API_KEY must be set in production");
             }
+            if let Some(ref key) = self.auth.worker_api_key {
+                if key.len() < 16 {
+                    anyhow::bail!("WORKER_API_KEY must be at least 16 characters in production");
+                }
+            }
+
+            // Starknet
+            if self.starknet.rpc_url.contains("sepolia") && self.starknet.chain_id == "mainnet" {
+                anyhow::bail!("Starknet RPC URL points to sepolia but chain_id is mainnet — set STARKNET_RPC_URL to a mainnet RPC");
+            }
+            if self.starknet.chain_id == "mainnet" && self.starknet.rpc_url.contains("demo") {
+                anyhow::bail!("Cannot use demo RPC endpoint on mainnet — use a production RPC provider");
+            }
+            if !self.starknet.rpc_url.starts_with("https://") {
+                anyhow::bail!("starknet.rpc_url must use HTTPS in production");
+            }
+            if self.starknet.account_address.is_none() {
+                tracing::warn!("STARKNET_ACCOUNT_ADDRESS not set — on-chain operations will fail");
+            }
+            if self.starknet.private_key.is_some() {
+                tracing::info!("Starknet coordinator private key is configured (on-chain operations enabled)");
+            }
+
+            // Database
+            if !self.database.url.contains("postgres") {
+                tracing::warn!("Production should use PostgreSQL — SQLite is not recommended for production");
+            }
+
+            // TLS
             if !self.server.tls_enabled {
-                tracing::warn!("TLS is not enabled - connections will not be encrypted!");
+                tracing::warn!("TLS is not enabled — connections will not be encrypted!");
             }
         }
 

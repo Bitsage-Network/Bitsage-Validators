@@ -205,13 +205,14 @@ export interface UseWebSocketOptions {
 // Default Configuration
 // ============================================================================
 
-const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8090/ws';
+const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3030/ws';
 const DEFAULT_RECONNECT_ATTEMPTS = 5; // Reduced from 10 - fail faster for better UX
 const DEFAULT_RECONNECT_DELAY = 2000; // Start at 2 seconds
 const MAX_RECONNECT_DELAY = 30000; // 30 second max
 const INITIAL_CONNECTION_DELAY = 800; // Delay before first connection (allows React Strict Mode to settle)
 
 // Check if demo mode is enabled (skip WebSocket connections)
+const IS_DEV = process.env.NODE_ENV === 'development';
 const IS_DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
 // Suppress console errors for expected transient WebSocket failures
@@ -358,7 +359,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
           // Calculate exponential backoff with jitter
           const delay = calculateBackoff(reconnectCountRef.current, reconnectDelay);
-          console.log(`WebSocket reconnecting in ${delay}ms (attempt ${reconnectCountRef.current}/${reconnectAttempts})`);
+          if (IS_DEV) {
+            console.debug(`WebSocket reconnecting in ${delay}ms (attempt ${reconnectCountRef.current}/${reconnectAttempts})`);
+          }
 
           reconnectTimeoutRef.current = setTimeout(() => {
             if (mountedRef.current && !userDisconnectRef.current) {

@@ -27,11 +27,13 @@ import {
 import { useAccount } from '@starknet-react/core';
 import { usePragmaSagePrice } from './usePragmaOracle';
 
-// Fallback SAGE price in USD (used when on-chain sources fail)
-const SAGE_FALLBACK_PRICE_USD = 0.10;
+// Fallback SAGE price in USD (used ONLY when ALL on-chain sources fail)
+// Production: this should be updated periodically or replaced with an additional oracle
+const SAGE_FALLBACK_PRICE_USD = parseFloat(process.env.NEXT_PUBLIC_SAGE_FALLBACK_PRICE || '0.10');
 
-// Approximate STRK/USD price for conversion
-const STRK_USD_PRICE = 0.50;
+// Approximate STRK/USD price for conversion when oracle unavailable
+// Production: this is overridden by Pragma Oracle data when available
+const STRK_USD_PRICE = parseFloat(process.env.NEXT_PUBLIC_STRK_FALLBACK_PRICE || '0.50');
 
 // ============================================================================
 // SAGE Price Hook - Real OTC Market Data

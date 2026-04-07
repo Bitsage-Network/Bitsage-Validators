@@ -104,6 +104,13 @@ impl Database {
     }
 }
 
+impl Database {
+    /// Get a validator earnings repository
+    pub fn validator_earnings(&self) -> repository::ValidatorEarningsRepository<'_> {
+        repository::ValidatorEarningsRepository::new(self)
+    }
+}
+
 /// Database error types
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {

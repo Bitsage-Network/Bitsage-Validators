@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -21,9 +21,25 @@ use super::{
 };
 use super::session_manager::RentalError;
 use super::validation;
+use crate::middleware::auth::wallet_auth;
 
 /// App state type alias
 type AppState = Arc<super::super::AppState>;
+
+/// Extract and verify the wallet address from request headers.
+fn extract_verified_wallet(headers: &HeaderMap, request_path: &str) -> Result<String, (StatusCode, String)> {
+    let wallet = headers.get("X-Wallet-Address")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "X-Wallet-Address header required".to_string()))?;
+
+    if wallet_auth::is_enforced() {
+        wallet_auth::verify_wallet_header(headers, request_path)
+            .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Wallet signature verification failed: {}", e)))
+    } else {
+        Ok(wallet.to_string())
+    }
+}
 
 // ============================================================================
 // Templates API
@@ -65,8 +81,15 @@ pub async fn list_available_gpus(
 #[axum::debug_handler]
 pub async fn register_gpu(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(gpu): Json<MarketplaceGpu>,
 ) -> Result<Json<MarketplaceGpu>, (StatusCode, String)> {
+    // Verify the requester owns the validator wallet they're registering under
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/gpus")?;
+    if requester != gpu.validator_wallet {
+        return Err((StatusCode::FORBIDDEN, "Cannot register GPU under another validator's wallet".to_string()));
+    }
+
     // Validate input
     validation::validate_register_gpu(
         &gpu.id,
@@ -75,6 +98,14 @@ pub async fn register_gpu(
         gpu.vram_gb,
     ).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
+    // Validate float fields
+    if !gpu.uptime_percent.is_finite() || gpu.uptime_percent < 0.0 || gpu.uptime_percent > 100.0 {
+        return Err((StatusCode::BAD_REQUEST, "uptime_percent must be 0-100".to_string()));
+    }
+    if !gpu.rating.is_finite() || gpu.rating < 0.0 || gpu.rating > 5.0 {
+        return Err((StatusCode::BAD_REQUEST, "rating must be 0-5".to_string()));
+    }
+
     info!(gpu_id = %gpu.id, validator = %gpu.validator_wallet, "Registering GPU on marketplace");
 
     state.rentals.register_gpu(gpu.clone()).await;
@@ -82,13 +113,22 @@ pub async fn register_gpu(
     Ok(Json(gpu))
 }
 
-/// Update GPU availability
+/// Update GPU availability (owner-only)
 #[axum::debug_handler]
 pub async fn update_gpu_availability(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(gpu_id): Path<String>,
     Json(availability): Json<GpuAvailability>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // Verify the requester owns this GPU
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/gpus/{}/availability", gpu_id))?;
+    let gpu = state.rentals.get_gpu(&gpu_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "GPU not found".to_string()))?;
+    if requester != gpu.validator_wallet {
+        return Err((StatusCode::NOT_FOUND, "GPU not found".to_string()));
+    }
+
     state.rentals.update_gpu_availability(&gpu_id, availability).await;
     Ok(StatusCode::OK)
 }
@@ -177,15 +217,22 @@ pub async fn get_rental(
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))
 }
 
-/// Get all rentals for a user
+/// Get all rentals for a user (own rentals only)
 #[axum::debug_handler]
 pub async fn get_user_rentals(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<UserRentalsQuery>,
 ) -> Result<Json<Vec<RentalSession>>, (StatusCode, String)> {
     // Validate wallet address
     validation::validate_wallet_address(&params.wallet)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Verify requester is querying their own rentals
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals")?;
+    if requester != params.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only query your own rentals".to_string()));
+    }
 
     let rentals = state.rentals.get_user_rentals(&params.wallet).await;
     Ok(Json(rentals))
@@ -196,13 +243,22 @@ pub struct UserRentalsQuery {
     wallet: String,
 }
 
-/// Extend a rental
+/// Extend a rental (owner-only)
 #[axum::debug_handler]
 pub async fn extend_rental(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
     Json(request): Json<ExtendRentalRequest>,
 ) -> Result<Json<RentalSession>, (StatusCode, String)> {
+    // Verify ownership with signature verification in production
+    let rental = state.rentals.get_rental(rental_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/extend", rental_id))?;
+    if requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
+
     // Validate input
     validation::validate_extend_rental(request.additional_hours as u64)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -218,12 +274,21 @@ pub async fn extend_rental(
     Ok(Json(session))
 }
 
-/// Stop a rental
+/// Stop a rental (owner-only)
 #[axum::debug_handler]
 pub async fn stop_rental(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<RentalSession>, (StatusCode, String)> {
+    // Verify ownership with signature verification in production
+    let rental = state.rentals.get_rental(rental_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/stop", rental_id))?;
+    if requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
+
     info!(rental_id = %rental_id, "Stopping rental");
 
     let session = state.rentals.sessions.stop_rental(
@@ -245,14 +310,21 @@ pub async fn stop_rental(
     Ok(Json(session))
 }
 
-/// Get SSH credentials for a rental
+/// Get SSH credentials for a rental (owner-only)
 #[axum::debug_handler]
 pub async fn get_ssh_credentials(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<SshCredentialsResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify wallet signature in production
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/ssh", rental_id))?;
+    if requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     if !rental.status.is_active() {
         return Err((StatusCode::BAD_REQUEST, "Rental is not active".to_string()));
@@ -288,14 +360,21 @@ pub struct SshCredentialsResponse {
     connection_string: String,
 }
 
-/// Get Jupyter access for a rental
+/// Get Jupyter access for a rental (owner-only)
 #[axum::debug_handler]
 pub async fn get_jupyter_access(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
 ) -> Result<Json<JupyterAccessResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify wallet signature in production
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/jupyter", rental_id))?;
+    if requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     if !rental.status.is_active() {
         return Err((StatusCode::BAD_REQUEST, "Rental is not active".to_string()));
@@ -326,11 +405,18 @@ pub struct JupyterAccessResponse {
 #[axum::debug_handler]
 pub async fn get_escrow_balance(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<WalletQuery>,
 ) -> Result<Json<EscrowBalance>, (StatusCode, String)> {
     // Validate wallet address
     validation::validate_wallet_address(&params.wallet)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Verify requester is querying their own balance
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/escrow/balance")?;
+    if requester != params.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only query your own balance".to_string()));
+    }
 
     let balance = state.rentals.billing.get_escrow_balance(&params.wallet).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -342,17 +428,31 @@ pub struct WalletQuery {
     wallet: String,
 }
 
-/// Deposit SAGE to escrow
+/// Deposit SAGE to escrow (own wallet only)
 #[axum::debug_handler]
 pub async fn deposit_escrow(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<DepositRequest>,
 ) -> Result<Json<EscrowBalance>, (StatusCode, String)> {
+    // Verify requester is depositing to their own wallet
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/escrow/deposit")?;
+    if requester != request.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only deposit to your own wallet".to_string()));
+    }
+
     // Validate input
     validation::validate_wallet_address(&request.wallet)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     validation::validate_deposit(request.amount)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Validate tx_hash format if provided
+    if let Some(ref tx) = request.tx_hash {
+        if !tx.starts_with("0x") || tx.len() < 4 || tx.len() > 66 || !tx[2..].chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err((StatusCode::BAD_REQUEST, "Invalid tx_hash format (expected 0x-prefixed hex)".to_string()));
+        }
+    }
 
     info!(wallet = %request.wallet, amount = request.amount, "Processing deposit");
 
@@ -373,36 +473,59 @@ pub struct DepositRequest {
     tx_hash: Option<String>,
 }
 
-/// Get billing history for a rental
+/// Get billing history for a rental (owner or validator only)
 #[axum::debug_handler]
 pub async fn get_rental_billing(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
-) -> Json<Vec<BillingRecord>> {
+) -> Result<Json<Vec<BillingRecord>>, (StatusCode, String)> {
+    // Verify requester is the tenant or validator of this rental
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/billing", rental_id))?;
+    let rental = state.rentals.get_rental(rental_id).await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+    if requester != rental.tenant_wallet && requester != rental.validator_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
+
     let records = state.rentals.billing.get_rental_billing(rental_id).await;
-    Json(records)
+    Ok(Json(records))
 }
 
-/// Get validator earnings
+/// Get validator earnings (own wallet only)
 #[axum::debug_handler]
 pub async fn get_validator_earnings(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<WalletQuery>,
 ) -> Result<Json<ValidatorEarnings>, (StatusCode, String)> {
     // Validate wallet address
     validation::validate_wallet_address(&params.wallet)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
+    // Verify requester is querying their own earnings
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/earnings")?;
+    if requester != params.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only query your own earnings".to_string()));
+    }
+
     let earnings = state.rentals.billing.get_validator_earnings(&params.wallet).await;
     Ok(Json(earnings))
 }
 
-/// Withdraw validator earnings
+/// Withdraw validator earnings (own wallet only)
 #[axum::debug_handler]
 pub async fn withdraw_earnings(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<WithdrawRequest>,
 ) -> Result<Json<WithdrawResponse>, (StatusCode, String)> {
+    // Verify requester is withdrawing from their own wallet
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/earnings/withdraw")?;
+    if requester != request.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only withdraw your own earnings".to_string()));
+    }
+
     // Validate input
     validation::validate_withdrawal(&request.wallet, request.amount)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -434,15 +557,22 @@ pub struct WithdrawResponse {
 // Container Management API (internal/admin)
 // ============================================================================
 
-/// Get container logs
+/// Get container logs (owner-only — logs may contain secrets)
 #[axum::debug_handler]
 pub async fn get_container_logs(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rental_id): Path<Uuid>,
     Query(params): Query<LogsQuery>,
 ) -> Result<Json<LogsResponse>, (StatusCode, String)> {
     let rental = state.rentals.get_rental(rental_id).await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Rental '{}' not found", rental_id)))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Rental not found".to_string()))?;
+
+    // Security: verify wallet signature in production
+    let requester = extract_verified_wallet(&headers, &format!("/api/v1/rentals/{}/logs", rental_id))?;
+    if requester != rental.tenant_wallet {
+        return Err((StatusCode::NOT_FOUND, "Rental not found".to_string()));
+    }
 
     let container_id = rental.container_id
         .ok_or_else(|| (StatusCode::NOT_FOUND, "No container for this rental".to_string()))?;
@@ -531,11 +661,18 @@ pub struct EscrowStatusResponse {
 #[axum::debug_handler]
 pub async fn sync_escrow_balance(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<WalletQuery>,
 ) -> Result<Json<EscrowBalance>, (StatusCode, String)> {
     // Validate wallet address
     validation::validate_wallet_address(&params.wallet)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Verify requester is syncing their own balance
+    let requester = extract_verified_wallet(&headers, "/api/v1/rentals/escrow/sync")?;
+    if requester != params.wallet {
+        return Err((StatusCode::FORBIDDEN, "Can only sync your own balance".to_string()));
+    }
 
     if !state.rentals.is_on_chain_enabled() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "On-chain operations not available".to_string()));

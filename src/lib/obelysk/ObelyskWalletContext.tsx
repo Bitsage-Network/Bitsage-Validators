@@ -234,27 +234,18 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3030";
 
     const loadPrivacyPoolBalance = async () => {
       try {
         // Get unspent notes from IndexedDB
         const notes = await getUnspentNotes(address);
 
-        console.log("[ObelyskWallet] Found", notes.length, "notes in IndexedDB for address:", address?.slice(0, 10) + "...");
         if (notes.length > 0) {
-          notes.forEach((n, i) => {
-            console.log(`[ObelyskWallet] Note ${i + 1}:`, {
-              denomination: n.denomination,
-              commitment: n.commitment?.slice(0, 16) + "...",
-              spent: n.spent,
-              depositTxHash: n.depositTxHash?.slice(0, 16) + "...",
-            });
-          });
+          console.debug("[ObelyskWallet] Found", notes.length, "notes in IndexedDB for address:", address?.slice(0, 10) + "...");
         }
 
         if (notes.length === 0) {
-          console.log("[ObelyskWallet] No notes found in IndexedDB - either never deposited or data was cleared");
           setPrivacyPoolBalance(0);
           setStaleNotesCount(0);
           setLocalNotesBalance(0);
@@ -310,7 +301,7 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
   const clearStaleNotes = useCallback(async () => {
     if (!address) return;
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3030";
     const notes = await getNotes(address);
 
     let cleared = 0;
@@ -568,16 +559,12 @@ export function ObelyskWalletProvider({ children }: { children: ReactNode }) {
     const startTime = Date.now();
 
     try {
-      // TODO: Call privacyClient.ragequit() when available
-      await new Promise(resolve => setTimeout(resolve, 200));
-      const proofTimeMs = Date.now() - startTime;
-      setProvingTime(proofTimeMs);
-
-      setProvingState("sending");
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      setProvingState("confirming");
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Ragequit is handled by the Obelysk app — this context is for display only
+      // in the validator dashboard. Full ragequit flow lives in the Obelysk wallet.
+      throw new Error(
+        "Ragequit operations are managed through the Obelysk wallet app. " +
+        "Visit obelysk.bitsage.network to manage your private balances."
+      );
 
       const privateAmount = formatBalance(decryptedPrivateBalance);
 

@@ -185,11 +185,16 @@ export class CircuitRegistry {
    */
   static getEstimatedTime(circuit: CircuitType, mode: ProofMode): number | undefined {
     const config = this.get(circuit);
+<<<<<<< HEAD
     if (!config) return undefined;
     if (mode === ProofMode.AUTO) {
       return config.estimatedTimeMs[config.defaultMode as keyof typeof config.estimatedTimeMs];
     }
     return config.estimatedTimeMs[mode as keyof typeof config.estimatedTimeMs];
+=======
+    if (mode === ProofMode.AUTO) return undefined;
+    return config?.estimatedTimeMs[mode];
+>>>>>>> ff5fca2900bacf0c1884f1309c7e1242285c5eeb
   }
 
   /**
@@ -198,8 +203,14 @@ export class CircuitRegistry {
   static supportsMode(circuit: CircuitType, mode: ProofMode): boolean {
     const config = this.get(circuit);
     if (!config) return false;
+<<<<<<< HEAD
     if (mode === ProofMode.AUTO) return true;
     return config.estimatedTimeMs[mode as keyof typeof config.estimatedTimeMs] !== undefined;
+=======
+
+    if (mode === ProofMode.AUTO) return true;
+    return config.estimatedTimeMs[mode] !== undefined;
+>>>>>>> ff5fca2900bacf0c1884f1309c7e1242285c5eeb
   }
 
   /**

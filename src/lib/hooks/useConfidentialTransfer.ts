@@ -174,7 +174,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
   // Provider for read calls
   const provider = useMemo(
     () => new RpcProvider({
-      nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://rpc.starknet-testnet.lava.build",
+      nodeUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/demo",
     }),
     []
   );
@@ -216,7 +216,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
       // Check if already registered on-chain
       const registered = await isRegistered();
       if (registered) {
-        console.log("[ConfidentialTransfer] Already registered on-chain");
+        // Already registered — do not log
         setState((s) => ({ ...s, isLoading: false, isRegistered: true }));
         return;
       }
@@ -224,7 +224,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
       // Initialize or unlock privacy keys using usePrivacyKeys hook
       let userPublicKey = publicKey;
       if (!hasKeys) {
-        console.log("[ConfidentialTransfer] Initializing privacy keys...");
+        // Initializing privacy keys — do not log
         await initializeKeys();
         // Wait for keys to be available
         const keyPair = await unlockKeys();
@@ -233,7 +233,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         }
         userPublicKey = keyPair.publicKey;
       } else if (!userPublicKey) {
-        console.log("[ConfidentialTransfer] Unlocking existing keys...");
+        // Unlocking existing keys — do not log
         const keyPair = await unlockKeys();
         if (!keyPair) {
           throw new Error("Failed to unlock privacy keys");
@@ -251,7 +251,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         y: "0x" + userPublicKey.y.toString(16),
       };
 
-      console.log("[ConfidentialTransfer] Registering public key:", pkCalldata);
+      // NEVER log public key data
 
       const tx = await sendAsync([
         {
@@ -261,7 +261,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         },
       ]);
 
-      console.log("[ConfidentialTransfer] Register TX:", tx.transaction_hash);
+      // Do not log transaction hashes
       await provider.waitForTransaction(tx.transaction_hash);
 
       setState((s) => ({ ...s, isLoading: false, isRegistered: true }));
@@ -296,7 +296,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         // Create AE hint for O(1) decryption
         const aeHint = createAEHintFromRandomness(amount, randomness, keyPair.publicKey);
 
-        console.log("[ConfidentialTransfer] Funding:", { asset, amount: amount.toString() });
+        // NEVER log funding amounts or assets
 
         // First approve token transfer
         const tokenAddress = getTokenAddress(asset);
@@ -327,7 +327,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Fund TX:", tx.transaction_hash);
+        // Do not log transaction hashes
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -408,7 +408,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
         const senderHint = createAEHintFromRandomness(currentBalance - amount, randomness, keyPair.publicKey);
         const receiverHint = createAEHintFromRandomness(amount, randomness, receiverPk);
 
-        console.log("[ConfidentialTransfer] Transferring:", { to, asset, amount: amount.toString() });
+        // NEVER log transfer details (recipient, asset, amount)
 
         const tx = await sendAsync([
           {
@@ -427,7 +427,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Transfer TX:", tx.transaction_hash);
+        // Do not log transaction hashes
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -461,7 +461,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Rollover TX:", tx.transaction_hash);
+        // Do not log transaction hashes
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));
@@ -504,7 +504,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           randomness
         );
 
-        console.log("[ConfidentialTransfer] Withdrawing:", { to, asset, amount: amount.toString() });
+        // NEVER log withdrawal details
 
         const tx = await sendAsync([
           {
@@ -519,7 +519,7 @@ export function useConfidentialTransfer(): UseConfidentialTransferReturn {
           },
         ]);
 
-        console.log("[ConfidentialTransfer] Withdraw TX:", tx.transaction_hash);
+        // Do not log transaction hashes
         await provider.waitForTransaction(tx.transaction_hash);
 
         setState((s) => ({ ...s, isLoading: false }));

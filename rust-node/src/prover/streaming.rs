@@ -12,7 +12,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    response::Response,
+    response::{IntoResponse, Response},
+    http::{HeaderMap, StatusCode},
 };
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
@@ -67,12 +68,22 @@ pub struct ErrorPayload {
 // WebSocket Handler
 // ============================================================================
 
-/// Upgrade HTTP to WebSocket
+/// Maximum WebSocket message size (1 MB) — prevents memory exhaustion from oversized messages
+const MAX_WS_MESSAGE_SIZE: usize = 1024 * 1024;
+
+/// Upgrade HTTP to WebSocket (client proof subscriptions)
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    // Validate Origin header (CSRF prevention)
+    if let Err(resp) = validate_ws_origin(&headers) {
+        return resp;
+    }
+
+    ws.max_message_size(MAX_WS_MESSAGE_SIZE)
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 /// Handle WebSocket connection
@@ -92,7 +103,8 @@ async fn handle_socket(socket: WebSocket, _state: Arc<AppState>) {
         }
     });
 
-    // Track subscriptions
+    // Track subscriptions — cap to prevent a single connection from subscribing to everything
+    const MAX_SUBSCRIPTIONS_PER_CONN: usize = 20;
     let mut subscriptions = std::collections::HashSet::new();
 
     // Handle incoming messages
@@ -102,6 +114,10 @@ async fn handle_socket(socket: WebSocket, _state: Arc<AppState>) {
                 if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&text) {
                     match ws_msg {
                         WsMessage::Subscribe { request_id } => {
+                            if subscriptions.len() >= MAX_SUBSCRIPTIONS_PER_CONN {
+                                tracing::warn!("Client hit subscription limit ({}) — rejecting", MAX_SUBSCRIPTIONS_PER_CONN);
+                                continue;
+                            }
                             subscriptions.insert(request_id);
                             tracing::debug!(%request_id, "Client subscribed to proof updates");
 
@@ -535,12 +551,72 @@ pub struct WorkerCapabilities {
     pub owner_address: Option<String>,
 }
 
-/// WebSocket handler for workers
+/// Allowed WebSocket Origin domains (production)
+const ALLOWED_WS_ORIGINS: &[&str] = &[
+    "https://bitsage.network",
+    "https://obelysk.bitsage.network",
+    "https://app.bitsage.network",
+];
+
+/// Validate the Origin header on WebSocket upgrade requests (CSRF prevention).
+/// Returns Ok(()) if allowed, Err(Response) if rejected.
+fn validate_ws_origin(headers: &HeaderMap) -> Result<(), Response> {
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if !is_production {
+        return Ok(());
+    }
+
+    let origin = match headers.get("origin").and_then(|v| v.to_str().ok()) {
+        Some(o) => o,
+        None => {
+            // No Origin header — allow for non-browser clients (workers, CLI)
+            return Ok(());
+        }
+    };
+
+    // Check configured origins, falling back to the built-in list
+    let allowed_env = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_default();
+    let extra: Vec<&str> = allowed_env.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+
+    if ALLOWED_WS_ORIGINS.iter().any(|a| *a == origin)
+        || extra.iter().any(|a| *a == origin)
+    {
+        return Ok(());
+    }
+
+    tracing::warn!(origin = %origin, "WebSocket upgrade rejected: origin not allowed");
+    Err((StatusCode::FORBIDDEN, "Origin not allowed").into_response())
+}
+
+/// WebSocket handler for workers (requires API key via X-API-Key header in production)
 pub async fn worker_websocket_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     State(state): State<Arc<crate::AppState>>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle_worker_socket(socket, state))
+    // Validate Origin header (CSRF prevention)
+    if let Err(resp) = validate_ws_origin(&headers) {
+        return resp;
+    }
+
+    // Validate worker API key from header (NOT query string — avoids leaking key in logs/URLs)
+    let is_production = std::env::var("PRODUCTION").is_ok() || std::env::var("BITSAGE_PRODUCTION").is_ok();
+    if is_production {
+        let api_key = match headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
+            Some(k) => k,
+            None => {
+                tracing::warn!("Worker WebSocket connection rejected: missing X-API-Key header");
+                return (StatusCode::UNAUTHORIZED, "Missing X-API-Key header").into_response();
+            }
+        };
+        if !state.auth.validate_worker_api_key(api_key) {
+            tracing::warn!("Worker WebSocket connection rejected: invalid API key");
+            return (StatusCode::FORBIDDEN, "Invalid API key").into_response();
+        }
+    }
+
+    ws.max_message_size(MAX_WS_MESSAGE_SIZE)
+        .on_upgrade(move |socket| handle_worker_socket(socket, state))
 }
 
 /// Handle worker WebSocket connection with bidirectional communication
@@ -583,6 +659,20 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                             worker_type,
                             capabilities,
                         } => {
+                            // Prevent re-registration on same connection (identity swap attack)
+                            if let Some(ref existing_id) = worker_id {
+                                tracing::warn!(
+                                    existing_id = %existing_id,
+                                    new_id = %id,
+                                    "Worker attempted re-registration on same connection — rejecting"
+                                );
+                                let err = WorkerWsMessage::Error {
+                                    message: "Already registered on this connection. Reconnect to change identity.".to_string(),
+                                };
+                                let _ = ack_tx.send(err).await;
+                                continue;
+                            }
+
                             worker_id = Some(id.clone());
                             tracing::info!(
                                 worker_id = %id,
@@ -677,6 +767,24 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                             current_load,
                             is_healthy,
                         } => {
+                            // Verify the heartbeat is from the registered worker on this connection
+                            if let Some(ref registered_id) = worker_id {
+                                if &id != registered_id {
+                                    tracing::warn!(
+                                        claimed_id = %id,
+                                        registered_id = %registered_id,
+                                        "Worker sent heartbeat with mismatched ID — ignoring (possible impersonation)"
+                                    );
+                                    continue;
+                                }
+                            } else {
+                                tracing::warn!(
+                                    claimed_id = %id,
+                                    "Heartbeat received before registration — ignoring"
+                                );
+                                continue;
+                            }
+
                             tracing::debug!(
                                 worker_id = %id,
                                 current_load = %current_load,
@@ -690,14 +798,50 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                             phase,
                             progress,
                         } => {
+                            // Clamp progress to valid range
+                            let progress = progress.min(100);
+
+                            // Verify this worker is assigned to the job
+                            let authorized = {
+                                let proofs = state.proofs.read().await;
+                                if let Some(job) = proofs.get_pending(&job_id) {
+                                    job.worker_id.as_ref() == worker_id.as_ref()
+                                } else {
+                                    false
+                                }
+                            };
+
+                            if !authorized {
+                                tracing::warn!(
+                                    job_id = %job_id,
+                                    sender = ?worker_id,
+                                    "JobProgress from worker not assigned to this job — ignoring"
+                                );
+                                continue;
+                            }
+
                             tracing::debug!(
                                 job_id = %job_id,
                                 phase = ?phase,
                                 progress = %progress,
                                 "Job progress update"
                             );
+
                             // Update proof state with progress
-                            // TODO: Broadcast to client WebSocket subscribers
+                            {
+                                let mut proofs = state.proofs.write().await;
+                                if let Some(job) = proofs.get_pending_mut(&job_id) {
+                                    job.progress = Some(super::types::ProofProgress {
+                                        phase,
+                                        progress,
+                                        overall_progress: progress,
+                                        estimated_time_ms: None,
+                                        fri_round: None,
+                                        fri_foldings: None,
+                                    });
+                                    job.status = super::types::ProofJobStatus::Proving;
+                                }
+                            }
                         }
 
                         WorkerWsMessage::JobComplete {
@@ -707,19 +851,44 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
                             error,
                             generation_time_ms,
                         } => {
+                            // Look up the original job to get the correct circuit type and worker info
+                            let (circuit, completed_worker_id) = {
+                                let proofs = state.proofs.read().await;
+                                if let Some(job) = proofs.get_pending(&job_id) {
+                                    // Verify sender is the assigned worker
+                                    if job.worker_id.as_ref() != worker_id.as_ref() {
+                                        tracing::warn!(
+                                            job_id = %job_id,
+                                            sender = ?worker_id,
+                                            assigned = ?job.worker_id,
+                                            "JobComplete from worker not assigned to this job — ignoring"
+                                        );
+                                        continue;
+                                    }
+                                    (job.circuit, job.worker_id.clone())
+                                } else {
+                                    tracing::warn!(
+                                        job_id = %job_id,
+                                        "JobComplete for unknown/already-completed job — ignoring"
+                                    );
+                                    continue;
+                                }
+                            };
+
                             tracing::info!(
                                 job_id = %job_id,
                                 success = %success,
                                 generation_time_ms = %generation_time_ms,
+                                circuit = ?circuit,
+                                worker = ?completed_worker_id,
                                 "Job completed"
                             );
 
                             if success {
                                 if let Some(proof) = proof {
-                                    // Store the completed proof
                                     let result = super::types::ProofResult {
                                         id: job_id,
-                                        circuit: super::types::CircuitType::GenericCompute,
+                                        circuit,
                                         proof,
                                         public_inputs: serde_json::Value::Null,
                                         mode: super::types::ProofMode::WorkerGpu,
@@ -730,6 +899,41 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
 
                                     let mut proofs = state.proofs.write().await;
                                     proofs.complete(job_id, result);
+
+                                    // Credit SAGE earnings to the worker's validator
+                                    if let Some(ref wid) = completed_worker_id {
+                                        if let Some(gpu_worker) = state.workers.get_gpu_worker(wid).await {
+                                            if let Some(ref owner) = gpu_worker.owner_address {
+                                                // Calculate reward based on circuit complexity and time
+                                                let reward_sage = calculate_proof_reward(circuit, generation_time_ms);
+                                                state.rentals.billing.credit_proof_earnings(
+                                                    owner,
+                                                    reward_sage,
+                                                    job_id,
+                                                ).await;
+
+                                                // Persist earnings to database
+                                                if let Some(db) = state.db.as_ref() {
+                                                    let repo = db.validator_earnings();
+                                                    if let Err(e) = repo.add_earnings(owner, reward_sage as i64).await {
+                                                        tracing::error!(
+                                                            validator = %owner,
+                                                            amount = reward_sage,
+                                                            error = %e,
+                                                            "Failed to persist proof earnings to DB"
+                                                        );
+                                                    }
+                                                }
+
+                                                tracing::info!(
+                                                    job_id = %job_id,
+                                                    validator = %owner,
+                                                    reward_sage = reward_sage,
+                                                    "Credited SAGE proof reward to validator"
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             } else {
                                 tracing::error!(
@@ -851,6 +1055,35 @@ async fn handle_worker_socket(socket: WebSocket, state: Arc<crate::AppState>) {
 // ============================================================================
 // Rental Marketplace Helper Functions
 // ============================================================================
+
+/// Calculate SAGE reward for a completed proof (public alias for REST handlers)
+pub fn calculate_proof_reward_for_billing(circuit: super::types::CircuitType, generation_time_ms: u64) -> u64 {
+    calculate_proof_reward(circuit, generation_time_ms)
+}
+
+/// Calculate SAGE reward for a completed proof based on circuit type and generation time
+fn calculate_proof_reward(circuit: super::types::CircuitType, generation_time_ms: u64) -> u64 {
+    use super::types::CircuitType;
+
+    // Base reward in SAGE (smallest unit) per circuit type
+    let base_reward: u64 = match circuit {
+        CircuitType::AiInference => 10,
+        CircuitType::DataPipeline => 8,
+        CircuitType::MlTraining => 25,
+        CircuitType::GenericCompute => 5,
+        CircuitType::PrivacyWithdraw => 8,
+        CircuitType::PrivacyTransfer => 10,
+        CircuitType::ConfidentialSwap => 12,
+        CircuitType::MerkleMembership => 3,
+        CircuitType::RangeProof => 3,
+    };
+
+    // Time multiplier: longer proofs get slightly more (capped at 3x)
+    let time_secs = (generation_time_ms / 1000).max(1);
+    let time_multiplier = (time_secs as f64 / 5.0).min(3.0).max(1.0);
+
+    (base_reward as f64 * time_multiplier) as u64
+}
 
 /// Calculate default SAGE rate per hour based on VRAM
 fn calculate_default_rate(vram_gb: u32) -> u64 {

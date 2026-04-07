@@ -137,7 +137,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status_code();
 
-        // Log server errors
+        // Log server errors with full details (never exposed to client)
         if self.is_server_error() {
             error!(
                 error = %self,
@@ -147,10 +147,29 @@ impl IntoResponse for AppError {
             );
         }
 
+        // In production, scrub internal details from server error messages.
+        // Clients should never see database errors, stack traces, or internal paths.
+        let is_production = std::env::var("PRODUCTION").is_ok()
+            || std::env::var("BITSAGE_PRODUCTION").is_ok();
+
+        let client_message = if is_production && self.is_server_error() {
+            // Generic message for all 5xx errors — real details are in server logs
+            match &self {
+                AppError::Database(_) => "A database error occurred".to_string(),
+                AppError::Internal(_) => "An internal error occurred".to_string(),
+                AppError::ExternalService(_) => "An external service is unavailable".to_string(),
+                AppError::Configuration(_) => "A server configuration error occurred".to_string(),
+                AppError::DeploymentFailed(_) => "Deployment failed — check worker status".to_string(),
+                _ => "An unexpected error occurred".to_string(),
+            }
+        } else {
+            self.to_string()
+        };
+
         let response = ErrorResponse {
             error: ErrorDetail {
                 code: self.error_code(),
-                message: self.to_string(),
+                message: client_message,
                 status: status.as_u16(),
                 details: match &self {
                     AppError::InsufficientFunds { required, available } => {
@@ -162,7 +181,7 @@ impl IntoResponse for AppError {
                     _ => None,
                 },
             },
-            request_id: None, // Would be populated from request extensions
+            request_id: None,
         };
 
         (status, Json(response)).into_response()

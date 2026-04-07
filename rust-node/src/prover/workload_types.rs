@@ -31,8 +31,36 @@ pub struct Workload {
     pub verified: bool,
     /// Docker image or model identifier
     pub image: String,
+    /// Pinned image digest (sha256:...) — required in production.
+    /// When set, workers MUST pull the image by digest, not by tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
     /// Default configuration
     pub default_config: serde_json::Value,
+}
+
+impl Workload {
+    /// Get the fully qualified image reference for deployment.
+    /// In production, returns `image@sha256:...` if a digest is pinned.
+    /// Otherwise returns the image as-is (with tag).
+    pub fn deployment_image(&self) -> String {
+        let is_production = std::env::var("PRODUCTION").is_ok()
+            || std::env::var("BITSAGE_PRODUCTION").is_ok();
+
+        if is_production {
+            if let Some(digest) = &self.image_digest {
+                // Strip tag and use digest: bitsage/qwen-2.5@sha256:abc...
+                let base = self.image.split(':').next().unwrap_or(&self.image);
+                return format!("{}@{}", base, digest);
+            }
+            tracing::warn!(
+                workload = %self.id,
+                image = %self.image,
+                "No pinned digest for production workload — using tag (unsafe)"
+            );
+        }
+        self.image.clone()
+    }
 }
 
 /// Get all built-in workloads
@@ -47,6 +75,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["LLM".to_string(), "Reasoning".to_string(), "32K Context".to_string()],
             verified: true,
             image: "bitsage/qwen-2.5:latest".to_string(),
+            image_digest: None, // TODO: pin sha256 digest before mainnet launch
             default_config: serde_json::json!({
                 "max_tokens": 4096,
                 "temperature": 0.7
@@ -61,6 +90,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["LLM".to_string(), "Multimodal".to_string(), "Open Source".to_string()],
             verified: true,
             image: "bitsage/llama-3.2:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "max_tokens": 8192,
                 "temperature": 0.7
@@ -75,6 +105,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["ZK".to_string(), "STARK".to_string(), "GPU".to_string()],
             verified: true,
             image: "bitsage/stwo-prover:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "security_bits": 128,
                 "blowup_factor": 2
@@ -89,6 +120,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["Image Gen".to_string(), "Workflow".to_string(), "Modular".to_string()],
             verified: true,
             image: "bitsage/comfyui:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "default_model": "sdxl"
             }),
@@ -102,6 +134,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["Node".to_string(), "Starknet".to_string(), "Infrastructure".to_string()],
             verified: true,
             image: "bitsage/starknet-node:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "network": "mainnet",
                 "sync_mode": "full"
@@ -116,6 +149,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["Image Gen".to_string(), "SDXL".to_string(), "High Quality".to_string()],
             verified: true,
             image: "bitsage/sdxl:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "steps": 30,
                 "guidance_scale": 7.5
@@ -130,6 +164,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["Speech".to_string(), "Transcription".to_string(), "Multilingual".to_string()],
             verified: true,
             image: "bitsage/whisper-large:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "language": "auto",
                 "task": "transcribe"
@@ -144,6 +179,7 @@ pub fn get_builtin_workloads() -> Vec<Workload> {
             tags: vec!["Cairo".to_string(), "VM".to_string(), "Starknet".to_string()],
             verified: true,
             image: "bitsage/cairo-vm:latest".to_string(),
+            image_digest: None,
             default_config: serde_json::json!({
                 "trace_enabled": true
             }),
@@ -186,7 +222,9 @@ pub enum DeploymentStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentProgress {
     pub phase: DeploymentStatus,
-    pub progress_pct: u8,
+    /// Progress percentage (0-100). Serialized as "percent" to match frontend API contract.
+    #[serde(alias = "progress_pct")]
+    pub percent: u8,
     pub message: String,
     pub bytes_downloaded: Option<u64>,
     pub bytes_total: Option<u64>,
