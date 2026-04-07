@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - Crypto Module
+ * @obelyzk/prover-sdk - Crypto Module
  */
 
 export {

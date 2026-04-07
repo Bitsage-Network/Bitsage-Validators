@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk
+ * @obelyzk/prover-sdk
  *
  * Unified STWO Prover SDK for BitSage Network
  *
@@ -10,7 +10,7 @@
  *
  * @example
  * ```typescript
- * import { ProverClient, CircuitType, ProofMode } from '@bitsage/prover-sdk';
+ * import { ProverClient, CircuitType, ProofMode } from '@obelyzk/prover-sdk';
  *
  * const client = new ProverClient({
  *   coordinatorUrl: 'https://coordinator.bitsage.network',

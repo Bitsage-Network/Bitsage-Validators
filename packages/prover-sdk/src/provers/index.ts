@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - Provers Module
+ * @obelyzk/prover-sdk - Provers Module
  */
 
 export { WasmProver } from './wasm';

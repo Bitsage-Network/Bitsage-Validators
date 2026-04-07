@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - WASM Prover
+ * @obelyzk/prover-sdk - WASM Prover
  *
  * Browser-based WASM prover for offline/fallback proof generation.
  * Uses Web Workers for non-blocking proof generation.

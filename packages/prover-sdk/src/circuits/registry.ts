@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - Circuit Registry
+ * @obelyzk/prover-sdk - Circuit Registry
  *
  * Registry of all supported circuits with their configurations.
  * Maps circuit types to their metadata, verifier addresses, and timing estimates.
@@ -185,7 +185,11 @@ export class CircuitRegistry {
    */
   static getEstimatedTime(circuit: CircuitType, mode: ProofMode): number | undefined {
     const config = this.get(circuit);
-    return config?.estimatedTimeMs[mode];
+    if (!config) return undefined;
+    if (mode === ProofMode.AUTO) {
+      return config.estimatedTimeMs[config.defaultMode as keyof typeof config.estimatedTimeMs];
+    }
+    return config.estimatedTimeMs[mode as keyof typeof config.estimatedTimeMs];
   }
 
   /**
@@ -194,8 +198,8 @@ export class CircuitRegistry {
   static supportsMode(circuit: CircuitType, mode: ProofMode): boolean {
     const config = this.get(circuit);
     if (!config) return false;
-
-    return config.estimatedTimeMs[mode] !== undefined;
+    if (mode === ProofMode.AUTO) return true;
+    return config.estimatedTimeMs[mode as keyof typeof config.estimatedTimeMs] !== undefined;
   }
 
   /**

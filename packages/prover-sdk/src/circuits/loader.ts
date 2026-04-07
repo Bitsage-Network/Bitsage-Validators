@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - Circuit Loader
+ * @obelyzk/prover-sdk - Circuit Loader
  *
  * Handles loading and caching of proving keys from CDN.
  * Uses IndexedDB for persistent caching of large proving key files.

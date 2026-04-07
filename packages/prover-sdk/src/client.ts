@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - ProverClient
+ * @obelyzk/prover-sdk - ProverClient
  *
  * Unified client for STWO proof generation across multiple backends:
  * - Browser WASM (fallback, offline)

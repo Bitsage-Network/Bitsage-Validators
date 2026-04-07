@@ -1,5 +1,5 @@
 {
-  "name": "@bitsage/prover-sdk",
+  "name": "@obelyzk/prover-sdk",
   "version": "0.1.0",
   "description": "BitSage STWO Prover SDK - Unified interface for GPU, TEE, and WASM proof generation",
   "main": "./dist/index.js",

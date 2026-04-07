@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - Core Types
+ * @obelyzk/prover-sdk - Core Types
  *
  * Defines the unified type system for STWO proof generation across:
  * - Browser WASM (fallback)

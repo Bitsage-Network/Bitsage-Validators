@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - React Hooks
+ * @obelyzk/prover-sdk - React Hooks
  */
 
 export {

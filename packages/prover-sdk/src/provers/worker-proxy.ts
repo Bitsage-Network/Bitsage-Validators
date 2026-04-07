@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - GPU Worker Proxy
+ * @obelyzk/prover-sdk - GPU Worker Proxy
  *
  * Proxy for delegating compute proofs to GPU workers in the validator network.
  * Handles job submission, progress tracking, and result retrieval.

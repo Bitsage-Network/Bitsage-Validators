@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - TEE Proxy
+ * @obelyzk/prover-sdk - TEE Proxy
  *
  * Proxy for TEE-assisted proof generation with encrypted witness transport.
  * Handles ECDH key exchange, witness encryption, and attestation verification.
@@ -84,7 +84,7 @@ export class TEEProxy {
 
     return {
       publicKey: this.enclavePublicKey,
-      attestation: this.attestation,
+      attestation: this.attestation!,
     };
   }
 
@@ -152,7 +152,7 @@ export class TEEProxy {
     // Import enclave public key
     const enclaveKeyImported = await crypto.subtle.importKey(
       'raw',
-      enclavePubKey,
+      enclavePubKey as unknown as ArrayBuffer,
       { name: 'ECDH', namedCurve: 'P-256' },
       false,
       []
@@ -199,7 +199,7 @@ export class TEEProxy {
     // Import shared secret as HKDF key material
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      sharedSecret,
+      sharedSecret as unknown as ArrayBuffer,
       'HKDF',
       false,
       ['deriveKey']
@@ -304,7 +304,7 @@ export class TEEProxy {
 
       const pubKey = await crypto.subtle.importKey(
         'raw',
-        pubKeyBytes,
+        pubKeyBytes as unknown as ArrayBuffer,
         { name: 'ECDSA', namedCurve: 'P-256' },
         false,
         ['verify']
@@ -313,8 +313,8 @@ export class TEEProxy {
       return crypto.subtle.verify(
         { name: 'ECDSA', hash: 'SHA-256' },
         pubKey,
-        signatureBytes,
-        proofHashBytes
+        signatureBytes as unknown as ArrayBuffer,
+        proofHashBytes as unknown as ArrayBuffer
       );
     } catch {
       return false;

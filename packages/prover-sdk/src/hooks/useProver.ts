@@ -1,5 +1,5 @@
 /**
- * @bitsage/prover-sdk - useProver React Hook
+ * @obelyzk/prover-sdk - useProver React Hook
  *
  * React hook for proof generation with built-in state management,
  * progress tracking, and error handling.
