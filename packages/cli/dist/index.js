@@ -27,6 +27,7 @@ import { startCommand, stopCommand } from "./commands/services.js";
 import { statusCommand, healthCommand } from "./commands/status.js";
 import { gpuCommand } from "./commands/gpu.js";
 import { privacyCommand } from "./commands/privacy.js";
+import { loginCommand, shellCommand, proveCommand, nodesCommand } from "./commands/shell.js";
 const program = new Command();
 // ASCII banner
 const banner = `
@@ -201,6 +202,31 @@ program
     await new Promise((r) => setTimeout(r, 1000));
     spinner.succeed("You are running the latest version");
 });
+// Login command — authenticate with API key
+program
+    .command("login")
+    .description("Authenticate with a BitSage API key")
+    .requiredOption("-k, --api-key <key>", "API key (starts with bsk_)")
+    .action(loginCommand);
+// Shell command — SSH into a prover node
+program
+    .command("shell")
+    .description("SSH into an ObelyZK prover node (H100 GPU)")
+    .argument("<node>", "Node name (e.g., h100-prover)")
+    .action(shellCommand);
+// Prove command — submit inference + get on-chain proof
+program
+    .command("prove")
+    .description("Run verifiable inference and submit proof on-chain")
+    .argument("<prompt>", "Input text prompt")
+    .option("-m, --model <model>", "Model name (default: local)", "local")
+    .option("-n, --node <node>", "Prover node (default: h100-prover)", "h100-prover")
+    .action(proveCommand);
+// Nodes command — list available prover nodes
+program
+    .command("nodes")
+    .description("List available prover nodes")
+    .action(nodesCommand);
 // Parse and execute
 program.parse();
 // Show help if no command
